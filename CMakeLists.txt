@@ -21,3 +21,7 @@ find_package(SDL3)
 target_link_libraries(GBC SDL3::SDL3)
 
 add_subdirectory(src/audio)
+
+if(WIN32)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:8000000")
+endif()
