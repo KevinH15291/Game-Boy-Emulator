@@ -1,9 +1,10 @@
 .vscode/
 .cache/
-.DS_Store/
+build/
 
 roms/
 mgbdis/
+saves/
 
 CMakeFiles/
 CMakeCache.txt
@@ -11,11 +12,8 @@ CMakeCache.txt
 
 Makefile
 compile_commands.json
+.DS_Store
 
 *.txt
 *.bin
 *.gb
-
-*
-!/**/
-!*.*

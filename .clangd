@@ -1,0 +1,29 @@
+# .clangd
+CompileFlags:
+  Add: [
+    -isystem /usr/local/include,
+    -std=gnu++20,
+  ]
+  
+Diagnostics:
+  ClangTidy:
+    Add: [modernize*,cppcoreguidelines*,bugprone*,performance*,readability*,portability*, misc*]
+    FastCheckFilter: Loose
+    Remove: [readability-function-cognitive-complexity, 
+             readability-identifier-length, 
+             modernize-use-trailing-return-type, 
+             misc-non-private-member-variables-in-classes,
+             cppcoreguidelines-avoid-magic-numbers,
+             readability-magic-numbers]
+    CheckOptions:
+      readability-implicit-bool-conversion.AllowIntegerConditions: true
+      readability-implicit-bool-conversion.AllowPointerConditions: true
+      readability-braces-around-statements.ShortStatementLines: "1"
+      cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
+       
+
+Completion:
+  AllScopes: Yes
+  ArgumentLists: FullPlaceholders      
+Index:
+  StandardLibrary: true
