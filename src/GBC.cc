@@ -64,31 +64,33 @@ namespace GBC {
     }
 
     inline void GBC::handle_input() {
+#ifndef __EMSCRIPTEN__
         byte input_s = 0xF0, input_d = 0xF0;
 
-        if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_A]) {
+        const uint8_t* keyboard_state = SDL_GetKeyboardState(nullptr);
+        if (keyboard_state[SDL_SCANCODE_A]) {
             input_s |= 1;
         }
-        if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_S]) {
+        if (keyboard_state[SDL_SCANCODE_S]) {
             input_s |= (1 << 1);
         }
-        if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_Z]) {
-            input_s |= (1 << 2); //select
+        if (keyboard_state[SDL_SCANCODE_Z]) {
+            input_s |= (1 << 2);
         }
-        if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_X]) {
-            input_s |= (1 << 3); //start
+        if (keyboard_state[SDL_SCANCODE_X]) {
+            input_s |= (1 << 3);
         }
 
-        if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_RIGHT]) {
+        if (keyboard_state[SDL_SCANCODE_RIGHT]) {
             input_d |= 1;
         }
-        if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_LEFT]) {
+        if (keyboard_state[SDL_SCANCODE_LEFT]) {
             input_d |= (1 << 1);
         }
-        if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_UP]) {
+        if (keyboard_state[SDL_SCANCODE_UP]) {
             input_d |= (1 << 2);
         }
-        if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_DOWN]) {
+        if (keyboard_state[SDL_SCANCODE_DOWN]) {
             input_d |= (1 << 3); 
         }
 
@@ -96,9 +98,18 @@ namespace GBC {
             addresses.write(IF, addresses.read(IF) | (1 << 4));
         }
 
-
         addresses.input_d = ~input_d;
         addresses.input_s = ~input_s;
+#endif
+    }
+
+    void GBC::execute_frame() {
+        handle_input();
+        for (int i = 0; i < 70224; ++i) {
+            ppu.execute_cycle();
+            cpu.execute();
+            ++cycle_count;
+        }
     }
 
     inline void GBC::execute_cycle() {
@@ -107,20 +118,22 @@ namespace GBC {
 
         ++cycle_count;
 
+#ifndef __EMSCRIPTEN__
         if (cycle_count % 100 == 0) handle_input();
+#endif
     }
 
     inline void GBC::debug_execute_cycle(uint32_t freq) {
         execute_cycle();
 
+#ifndef __EMSCRIPTEN__
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_D]) {
             debug_flag = 1;
         }
         if (debug_flag && cpu.cycles == 0) { 
-            // std::cout << std::dec << cycle_count << std::hex << std::endl; 
             dump_stuff();
         }
-
+#endif
     }
 
     inline void GBC::dump_stuff() {

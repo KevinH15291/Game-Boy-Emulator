@@ -29,6 +29,7 @@ namespace GBC {
         uint16_t opcode = 0;
         uint8_t cycles = 0;
         bool IME = false, IMEdelay = false, halted = false, stathigh = false;
+        uint8_t cached_interrupt_flags = 0;
 
         void execute();
         inline void executeCB();

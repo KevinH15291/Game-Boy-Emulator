@@ -6,7 +6,8 @@ namespace GBC {
 
     void SM83::execute() {
     increment_timer();
-    if ((memory->read(IF) & memory->read(IE)) != 0) halted = false;
+    cached_interrupt_flags = memory->read(IF) & memory->read(IE);
+    if (cached_interrupt_flags != 0) halted = false;
     if (halted) return;
 
     if (cycles > 0) {
@@ -19,39 +20,34 @@ namespace GBC {
         dump_registers();
     }
     
-    if (IME && (memory->read(IF) & memory->read(IE))) {
-        if ((memory->read(IF) & 1) && (memory->read(IE) & 1)) {
+    if (IME && cached_interrupt_flags) {
+        if ((cached_interrupt_flags & 1)) {
             IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1));
+            memory->write(IF, memory->read(IF) & ~(1));
             call_interrupt(0x40);
             return;
         }
-        if ((memory->read(IF) & (1 << 1)) && (memory->read(IE) & (1 << 1))) {
+        if ((cached_interrupt_flags & (1 << 1))) {
             IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1 << 1));
+            memory->write(IF, memory->read(IF) & ~(1 << 1));
             call_interrupt(0x48);
             return;
         }
-        if ((memory->read(IF) & (1 << 2)) && (memory->read(IE) & (1 << 2))) {
+        if ((cached_interrupt_flags & (1 << 2))) {
             IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1 << 2));
+            memory->write(IF, memory->read(IF) & ~(1 << 2));
             call_interrupt(0x50);
             return;
         }
-        if ((memory->read(IF) & (1 << 3)) && (memory->read(IE) & (1 << 3))) {
+        if ((cached_interrupt_flags & (1 << 3))) {
             IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1 << 3));
+            memory->write(IF, memory->read(IF) & ~(1 << 3));
             call_interrupt(0x58);
             return;
         }
-        if ((memory->read(IF) & (1 << 4)) && (memory->read(IE) & (1 << 4))) {
+        if ((cached_interrupt_flags & (1 << 4))) {
             IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1 << 4));
+            memory->write(IF, memory->read(IF) & ~(1 << 4));
             call_interrupt(0x60);
             return;
         }
