@@ -16,6 +16,13 @@ target_include_directories(GBC PUBLIC src/audio)
 
 target_compile_options(GBC PUBLIC -fwrapv)
 
+if(EMSCRIPTEN)
+    target_compile_options(GBC PUBLIC -O3 -flto)
+    target_link_options(GBC PUBLIC -O3 -flto -sASSERTIONS=0 -sDISABLE_EXCEPTION_CATCHING=1 -sMALLOC=emmalloc)
+else()
+    target_compile_options(GBC PUBLIC -O3)
+endif()
+
 find_package(SDL3)
 
 target_link_libraries(GBC SDL3::SDL3)

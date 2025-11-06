@@ -39,29 +39,15 @@ namespace GBC {
     
     // TODO: Benchmark how slow this is. Might stop using it in static contexts, I'll see how well the compiler optimizes it. Also probably want to implement mask read/writes
     byte address_bus::read(half address) {
-        if (address < 0x0100 && booting) {
-            return bootrom[address];
-        }
-
         if (address <= END_ROM_BANK_00) {
+            if (address < 0x0100 && booting) {
+                return bootrom[address];
+            }
             return cartROM[address];
         }
 
         if (address >= ROM_BANK_NN && address <= END_ROM_BANK_NN) {
             return cartROM[address+16*KB*(rom_bank & 0x7F)-ROM_BANK_NN];
-        }
-
-        if (address >= VIDEO_RAM && address <= END_VIDEO_RAM) {
-            if (lcd_mode == draw) return 0xFF;
-            return videoRAM[address+vram_bank*8*KB-VIDEO_RAM]; 
-        }
-
-        if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM) {
-            return cartRAM[address+8*KB*eram_bank-EXTERNAL_RAM];
-        }
-          
-        if (address >= ECHO_RAM1 && address <= EECHO_RAM2) {
-            address-=0x2000;
         }
 
         if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
@@ -70,6 +56,19 @@ namespace GBC {
 
         if (address >= WORK_RAM_BANKN && address <= END_WORK_RAM_BANKN) {
             return workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN]; 
+        }
+
+        if (address >= ECHO_RAM1 && address <= EECHO_RAM2) {
+            address-=0x2000;
+            if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
+                return workRAM[address-WORK_RAM_BANK0];
+            }
+            return workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN];
+        }
+
+        if (address >= VIDEO_RAM && address <= END_VIDEO_RAM) {
+            if (lcd_mode == draw) return 0xFF;
+            return videoRAM[address+vram_bank*8*KB-VIDEO_RAM]; 
         }
 
         if (address >= OAMaddress && address <= END_OAM) {
@@ -83,6 +82,10 @@ namespace GBC {
 
         if (address >= HIGH_RAM && address <= END_HIGH_RAM) {
             return HRAM[address-HIGH_RAM];
+        }
+
+        if (address >= EXTERNAL_RAM && address <=END_EXTERNAL_RAM) {
+            return cartRAM[address+8*KB*eram_bank-EXTERNAL_RAM];
         }
 
         if (address >= NOT_USUABLE && address <= END_NOT_USUABLE) {
@@ -166,16 +169,6 @@ namespace GBC {
     }
 
     void address_bus::write(half address, byte value) {
-        if (address >= VIDEO_RAM && address <= END_VIDEO_RAM) {
-            if (lcd_mode == draw) return;
-            videoRAM[address+vram_bank*8*KB-VIDEO_RAM] = value;
-            return;
-        }
-
-        if (address >= ECHO_RAM1 && address <= EECHO_RAM2) {
-            address-=0x2000;
-        }
-
         if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
             workRAM[address-WORK_RAM_BANK0] = value;
             return;
@@ -186,15 +179,25 @@ namespace GBC {
             return;
         }
 
+        if (address >= ECHO_RAM1 && address <= EECHO_RAM2) {
+            address-=0x2000;
+            if (address >= WORK_RAM_BANK0 && address <= END_WORK_RAM_BANK0) {
+                workRAM[address-WORK_RAM_BANK0] = value;
+                return;
+            }
+            workRAM[address+wram_bank*4*KB-WORK_RAM_BANKN] = value;
+            return;
+        }
+
+        if (address >= VIDEO_RAM && address <= END_VIDEO_RAM) {
+            if (lcd_mode == draw) return;
+            videoRAM[address+vram_bank*8*KB-VIDEO_RAM] = value;
+            return;
+        }
+
         if (address >= OAMaddress && address <= END_OAM) {
             if (lcd_mode == draw || lcd_mode == OAMscan) return;
             OAM[address-OAMaddress] = value;
-            return;
-        }
-        
-        if (address >= EXTERNAL_RAM && address <= END_EXTERNAL_RAM) {
-            if (RAMenable) 
-               cartRAM[address+8*KB*eram_bank-EXTERNAL_RAM] = value;
             return;
         }
 
@@ -205,6 +208,12 @@ namespace GBC {
 
         if (address >= HIGH_RAM && address <= END_HIGH_RAM) {
             HRAM[address-HIGH_RAM] = value;
+            return;
+        }
+
+        if (address >= EXTERNAL_RAM && address <= END_EXTERNAL_RAM) {
+            if (RAMenable) 
+               cartRAM[address+8*KB*eram_bank-EXTERNAL_RAM] = value;
             return;
         }
 

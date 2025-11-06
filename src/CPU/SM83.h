@@ -37,35 +37,35 @@ namespace GBC {
         //===========================================================
         // Flag accessors – F is stored in r8[6]
         //===========================================================
-        inline bool getZeroFlag() const       { return (r8[6] >> 7) & 1; }
-        inline bool getNFlag() const          { return (r8[6] >> 6) & 1; }
-        inline bool getHalfCarryFlag() const  { return (r8[6] >> 5) & 1; }
-        inline bool getCarryFlag() const      { return (r8[6] >> 4) & 1; }
+        [[gnu::always_inline]] inline bool getZeroFlag() const       { return (r8[6] >> 7) & 1; }
+        [[gnu::always_inline]] inline bool getNFlag() const          { return (r8[6] >> 6) & 1; }
+        [[gnu::always_inline]] inline bool getHalfCarryFlag() const  { return (r8[6] >> 5) & 1; }
+        [[gnu::always_inline]] inline bool getCarryFlag() const      { return (r8[6] >> 4) & 1; }
 
-        inline void setZeroFlag(bool val)     { r8[6] = (r8[6] & ~(1 << 7)) | ((val ? 1 : 0) << 7); }
-        inline void setNFlag(bool val)        { r8[6] = (r8[6] & ~(1 << 6)) | ((val ? 1 : 0) << 6); }
-        inline void setHalfCarryFlag(bool val){ r8[6] = (r8[6] & ~(1 << 5)) | ((val ? 1 : 0) << 5); }
-        inline void setCarryFlag(bool val)    { r8[6] = (r8[6] & ~(1 << 4)) | ((val ? 1 : 0) << 4); }
+        [[gnu::always_inline]] inline void setZeroFlag(bool val)     { r8[6] = (r8[6] & ~(1 << 7)) | ((val ? 1 : 0) << 7); }
+        [[gnu::always_inline]] inline void setNFlag(bool val)        { r8[6] = (r8[6] & ~(1 << 6)) | ((val ? 1 : 0) << 6); }
+        [[gnu::always_inline]] inline void setHalfCarryFlag(bool val){ r8[6] = (r8[6] & ~(1 << 5)) | ((val ? 1 : 0) << 5); }
+        [[gnu::always_inline]] inline void setCarryFlag(bool val)    { r8[6] = (r8[6] & ~(1 << 4)) | ((val ? 1 : 0) << 4); }
 
         //===========================================================
         // Register-pair accessors
         //===========================================================
-        inline uint16_t getAF() const { return (r8[7] << 8) | r8[6]; }
-        inline uint16_t getBC() const { return (r8[0] << 8) | r8[1]; }
-        inline uint16_t getDE() const { return (r8[2] << 8) | r8[3]; }
-        inline uint16_t getHL() const { return (r8[4] << 8) | r8[5]; }
-        inline void setAF(uint16_t val) { r8[7] = val >> 8; r8[6] = val & 0xF0; } // lower nibble of F always 0
-        inline void setBC(uint16_t val) { r8[0] = val >> 8; r8[1] = val & 0xFF; }
-        inline void setDE(uint16_t val) { r8[2] = val >> 8; r8[3] = val & 0xFF; }
-        inline void setHL(uint16_t val) { r8[4] = val >> 8; r8[5] = val & 0xFF; }
+        [[gnu::always_inline]] inline uint16_t getAF() const { return (r8[7] << 8) | r8[6]; }
+        [[gnu::always_inline]] inline uint16_t getBC() const { return (r8[0] << 8) | r8[1]; }
+        [[gnu::always_inline]] inline uint16_t getDE() const { return (r8[2] << 8) | r8[3]; }
+        [[gnu::always_inline]] inline uint16_t getHL() const { return (r8[4] << 8) | r8[5]; }
+        [[gnu::always_inline]] inline void setAF(uint16_t val) { r8[7] = val >> 8; r8[6] = val & 0xF0; }
+        [[gnu::always_inline]] inline void setBC(uint16_t val) { r8[0] = val >> 8; r8[1] = val & 0xFF; }
+        [[gnu::always_inline]] inline void setDE(uint16_t val) { r8[2] = val >> 8; r8[3] = val & 0xFF; }
+        [[gnu::always_inline]] inline void setHL(uint16_t val) { r8[4] = val >> 8; r8[5] = val & 0xFF; }
 
         //===========================================================
         // Fetch functions
         //===========================================================
-        inline uint8_t fetch8() {
+        [[gnu::always_inline]] inline uint8_t fetch8() {
             return memory->read(pc++);
         }
-        inline uint16_t fetch16() {
+        [[gnu::always_inline]] inline uint16_t fetch16() {
             uint16_t result = memory->read(pc) | (memory->read(pc + 1) << 8);
             pc += 2;
             return result;

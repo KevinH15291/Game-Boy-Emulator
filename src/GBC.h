@@ -22,7 +22,7 @@ namespace GBC {
             void run();
             void start_window();
             void execute_frame();
-            inline void execute_cycle();
+            [[gnu::always_inline]] inline void execute_cycle();
             inline void debug_execute_cycle(uint32_t freq);
             inline void dump_stuff();
             inline void handle_input();

@@ -58,10 +58,23 @@ namespace GBC {
 
         void init_debug_window();
         void render_debug();
+        void mark_cache_dirty() { cache_dirty = true; }
 
         private: 
         obj objbuffer[10];
         uint8_t objnum = 0;
+        byte cached_LCDC = 0;
+        byte cached_BGP = 0;
+        byte cached_OBP0 = 0;
+        byte cached_OBP1 = 0;
+        byte cached_SCX = 0;
+        byte cached_SCY = 0;
+        byte cached_WX = 0;
+        byte cached_WY = 0;
+        byte cached_LYC = 0;
+        bool cache_dirty = true;
+        bool lyc_match = false;
+        inline void update_register_cache();
         inline byte objFIFO();
         inline byte bgFIFO(half tilex, half tiley);
         inline byte windowFIFO(half tilex, half tiley);

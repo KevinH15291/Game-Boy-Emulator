@@ -40,11 +40,12 @@ namespace GBC {
             ++frame;
 
             // frame, TODO move out into function
-            for (int i = 0; i < 70224; ++i) {
-                execute_cycle();
-
+            for (int i = 0; i < 70224; ) {
+                int batch_size = 100;
+                for (int j = 0; j < batch_size && i < 70224; ++j, ++i) {
+                    execute_cycle();
+                }
                 if (ppu.mode == vblank) {
-
                     break;
                 }
             } 
@@ -109,6 +110,9 @@ namespace GBC {
             ppu.execute_cycle();
             cpu.execute();
             ++cycle_count;
+            if ((i % 100 == 0) && ppu.mode == vblank && i > 0) {
+                break;
+            }
         }
     }
 

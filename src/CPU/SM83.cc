@@ -21,31 +21,32 @@ namespace GBC {
     }
     
     if (IME && cached_interrupt_flags) {
-        if ((cached_interrupt_flags & 1)) {
+        uint8_t pending = cached_interrupt_flags;
+        if (pending & 1) {
             IME = 0;
             memory->write(IF, memory->read(IF) & ~(1));
             call_interrupt(0x40);
             return;
         }
-        if ((cached_interrupt_flags & (1 << 1))) {
+        if (pending & (1 << 1)) {
             IME = 0;
             memory->write(IF, memory->read(IF) & ~(1 << 1));
             call_interrupt(0x48);
             return;
         }
-        if ((cached_interrupt_flags & (1 << 2))) {
+        if (pending & (1 << 2)) {
             IME = 0;
             memory->write(IF, memory->read(IF) & ~(1 << 2));
             call_interrupt(0x50);
             return;
         }
-        if ((cached_interrupt_flags & (1 << 3))) {
+        if (pending & (1 << 3)) {
             IME = 0;
             memory->write(IF, memory->read(IF) & ~(1 << 3));
             call_interrupt(0x58);
             return;
         }
-        if ((cached_interrupt_flags & (1 << 4))) {
+        if (pending & (1 << 4)) {
             IME = 0;
             memory->write(IF, memory->read(IF) & ~(1 << 4));
             call_interrupt(0x60);
