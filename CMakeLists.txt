@@ -4,6 +4,11 @@ project(TestApp)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if(EMSCRIPTEN)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -flto")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -sASSERTIONS=0 -sDISABLE_EXCEPTION_CATCHING=1 -sMALLOC=emmalloc")
+endif()
+
 add_executable(GBC test.cc src/GBC.cc src/CPU/SM83.cc src/video/PPU.cc src/MMU/bus.cc src/audio/APU.cc) 
 
 target_include_directories(GBC PUBLIC src)

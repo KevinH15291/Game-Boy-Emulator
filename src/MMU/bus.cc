@@ -37,7 +37,6 @@ namespace GBC {
         std::ofstream("log.txt", std::ofstream::app) << "mbc: " << std::hex << (int)mbc << '\n';
     }
     
-    // TODO: Benchmark how slow this is. Might stop using it in static contexts, I'll see how well the compiler optimizes it. Also probably want to implement mask read/writes
     byte address_bus::read(half address) {
         if (address < 0x0100 && booting) {
             return bootrom[address];

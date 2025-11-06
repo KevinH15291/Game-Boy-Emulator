@@ -6,7 +6,9 @@ namespace GBC {
 
     void SM83::execute() {
     increment_timer();
-    if ((memory->read(IF) & memory->read(IE)) != 0) halted = false;
+    
+    cached_interrupt_flags = memory->read(IF) & memory->read(IE);
+    if (cached_interrupt_flags != 0) halted = false;
     if (halted) return;
 
     if (cycles > 0) {
@@ -19,40 +21,16 @@ namespace GBC {
         dump_registers();
     }
     
-    if (IME && (memory->read(IF) & memory->read(IE))) {
-        if ((memory->read(IF) & 1) && (memory->read(IE) & 1)) {
-            IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1));
-            call_interrupt(0x40);
-            return;
-        }
-        if ((memory->read(IF) & (1 << 1)) && (memory->read(IE) & (1 << 1))) {
-            IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1 << 1));
-            call_interrupt(0x48);
-            return;
-        }
-        if ((memory->read(IF) & (1 << 2)) && (memory->read(IE) & (1 << 2))) {
-            IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1 << 2));
-            call_interrupt(0x50);
-            return;
-        }
-        if ((memory->read(IF) & (1 << 3)) && (memory->read(IE) & (1 << 3))) {
-            IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1 << 3));
-            call_interrupt(0x58);
-            return;
-        }
-        if ((memory->read(IF) & (1 << 4)) && (memory->read(IE) & (1 << 4))) {
-            IME = 0;
-
-            memory->write(IF, (memory->read(IF) & 1) & ~(1 << 4));
-            call_interrupt(0x60);
+    if (IME && cached_interrupt_flags) {
+        static const uint16_t interrupt_handlers[] = {0x40, 0x48, 0x50, 0x58, 0x60};
+        
+        uint8_t interrupt_index = __builtin_ctz(cached_interrupt_flags);
+        
+        if (interrupt_index < 5) {
+            IME = false;
+            uint8_t if_reg = memory->read(IF);
+            memory->write(IF, if_reg & ~(1 << interrupt_index));
+            call_interrupt(interrupt_handlers[interrupt_index]);
             return;
         }
     }

@@ -39,31 +39,34 @@ namespace GBC {
         while(true) {
             ++frame;
 
-            // frame, TODO move out into function
-            for (int i = 0; i < 70224; ++i) {
-                execute_cycle();
-
-                if (ppu.mode == vblank) {
-
-                    break;
+            for (int i = 0; i < 70224; ) {
+                int cycles_batch = 100;
+                if (i + cycles_batch > 70224) cycles_batch = 70224 - i;
+                
+                for (int j = 0; j < cycles_batch; ++j) {
+                    ppu.execute_cycle();
+                    cpu.execute();
+                    ++cycle_count;
+                    ++i;
                 }
+                
+                if (ppu.mode == vblank) break;
             } 
 
             while (SDL_PollEvent(&ppu.event)) {
                 if (ppu.event.type == SDL_EVENT_QUIT) breakflag = true;
             }   
-            // ppu.render_debug();
 
             for (int j = 0; j < 4560; ++j) {
                 execute_cycle();
             }
 
             if (breakflag) break;
-            // std::this_thread::sleep_for(10ms); // TODO make sleep based on elapsed frame execution time
         }
     }
 
     inline void GBC::handle_input() {
+#ifndef __EMSCRIPTEN__
         byte input_s = 0xF0, input_d = 0xF0;
 
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_A]) {
@@ -73,10 +76,10 @@ namespace GBC {
             input_s |= (1 << 1);
         }
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_Z]) {
-            input_s |= (1 << 2); //select
+            input_s |= (1 << 2);
         }
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_X]) {
-            input_s |= (1 << 3); //start
+            input_s |= (1 << 3);
         }
 
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_RIGHT]) {
@@ -96,9 +99,18 @@ namespace GBC {
             addresses.write(IF, addresses.read(IF) | (1 << 4));
         }
 
-
         addresses.input_d = ~input_d;
         addresses.input_s = ~input_s;
+#endif
+    }
+
+    void GBC::execute_frame() {
+        handle_input();
+        for (int i = 0; i < 70224; ++i) {
+            ppu.execute_cycle();
+            cpu.execute();
+            ++cycle_count;
+        }
     }
 
     inline void GBC::execute_cycle() {
@@ -107,20 +119,22 @@ namespace GBC {
 
         ++cycle_count;
 
+#ifndef __EMSCRIPTEN__
         if (cycle_count % 100 == 0) handle_input();
+#endif
     }
 
     inline void GBC::debug_execute_cycle(uint32_t freq) {
         execute_cycle();
 
+#ifndef __EMSCRIPTEN__
         if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_D]) {
             debug_flag = 1;
         }
         if (debug_flag && cpu.cycles == 0) { 
-            // std::cout << std::dec << cycle_count << std::hex << std::endl; 
             dump_stuff();
         }
-
+#endif
     }
 
     inline void GBC::dump_stuff() {

@@ -43,25 +43,48 @@ namespace GBC {
         SDL_Quit();
     }
 
+    inline void PPU::update_register_cache() {
+        cached_LCDC = bus->read(LCDC);
+        cached_BGP = bus->read(BGP);
+        cached_OBP0 = bus->read(OBP0);
+        cached_OBP1 = bus->read(OBP1);
+        cached_SCX = bus->read(SCX);
+        cached_SCY = bus->read(SCY);
+        cached_WX = bus->read(WX);
+        cached_WY = bus->read(WY);
+        cached_LYC = bus->read(LYC);
+        cache_dirty = false;
+    }
+
     void PPU::execute_cycle() {
-        if (dots >= 456) ++lines;
-        dots %= 456;
+        if (dots >= 456) {
+            ++lines;
+            dots = 0;
+            cache_dirty = true;
+        }
         lines %= 154;
 
-        if ((bus->read(LCDC)&0x80) == 0) {
-            bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 0 | ((lines == bus->read(LYC)) << 2); 
+        if (cache_dirty && dots == 0) {
+            update_register_cache();
+        }
+
+        if ((cached_LCDC&0x80) == 0) {
+            if (mode != hblank) {
+                mode = hblank;
+                bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 0 | ((lines == cached_LYC) << 2);
+            }
             return;
         }
         bus->write(IF, bus->read(IF) & ~(1 << 1));
         bus->IOrange[LY-IO_REGISTERS] = lines;
-        if (bus->read(STAT) & (1 << 6) && (lines == bus->read(LYC))) bus->write(IF, bus->read(IF) | (1 << 1));
+        if (bus->read(STAT) & (1 << 6) && (lines == cached_LYC)) bus->write(IF, bus->read(IF) | (1 << 1));
 
         if (lines < 144) {
-            if ((dots%456) < 80) {
+            if (dots < 80) {
                 if (mode != OAMscan) {
                     objnum = 0;
                     mode = OAMscan; 
-                    byte objsize = (bus->read(LCDC) & (1 << 2)) ? 16 : 8;
+                    byte objsize = (cached_LCDC & (1 << 2)) ? 16 : 8;
                     
                     for (int16_t i = 0x00; i < 0x9F; i+=4) {
                         byte objy = bus->read_privledged(0xFE00+i)-16,
@@ -80,17 +103,17 @@ namespace GBC {
                         if (objnum == 10) break;
                     }
                     std::sort(objbuffer, objbuffer+objnum, [](obj a, obj b){return a.objx < b.objx;});
-                    bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 2 | ((lines == bus->read(LYC)) << 2);  
-                    if (bus->read(STAT) & (1 << 5)) bus->write(IF, bus->read(IF) | (1 << 1)); // TODO extract into function
+                    bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 2 | ((lines == cached_LYC) << 2);  
+                    if (bus->read(STAT) & (1 << 5)) bus->write(IF, bus->read(IF) | (1 << 1));
 
                 }
 
-            } else if ((dots%456) < 252) {
+            } else if (dots < 252) {
                 if (mode != draw) {
                     mode = draw;
                     wlyenabled = false;
                     debug_callback = true;
-                    bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 3 | ((lines == bus->read(LYC)) << 2);
+                    bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 3 | ((lines == cached_LYC) << 2);
                 }
 
                 draw_pixel();
@@ -101,7 +124,7 @@ namespace GBC {
                     if (wlyenabled) {
                         ++wly;
                     }
-                bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 0 | ((lines == bus->read(LYC)) << 2);
+                    bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 0 | ((lines == cached_LYC) << 2);
 
                     if (bus->read(STAT) & (1 << 3)) bus->write(IF, bus->read(IF) | (1 << 1));
                 }
@@ -114,26 +137,23 @@ namespace GBC {
                 bus->write(IF, bus->read(IF) | 1);
                 SDL_RenderPresent(renderer);
                 if (bus->read(STAT) & (1 << 4)) bus->write(IF, bus->read(IF) | (1 << 1));
-            bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 1 | ((lines == bus->read(LYC)) << 2);
-
+                bus->IOrange[STAT-IO_REGISTERS] = (bus->IOrange[STAT-IO_REGISTERS] & 0xF8) | 1 | ((lines == cached_LYC) << 2);
             }
 
         }
-        // bus->lcd_mode = mode; TODO, activate this, has been buggy so far
         
         ++dots;
     }
 
-    // TODO clean this up, and fix it
     void PPU::draw_pixel() {
-        byte bgenable = bus->read(LCDC) & 1,
-             objenable = bus->read(LCDC) & (1 << 1),
-             windowenable = bus->read(LCDC) & (1 << 5);
+        byte bgenable = cached_LCDC & 1,
+             objenable = cached_LCDC & (1 << 1),
+             windowenable = cached_LCDC & (1 << 5);
 
-        byte wx = bus->read(WX),
-             wy = bus->read(WY),
-             scx = bus->read(SCX),
-             scy = bus->read(SCY);
+        byte wx = cached_WX,
+             wy = cached_WY,
+             scx = cached_SCX,
+             scy = cached_SCY;
 
         if (windowenable && bgenable && !wlyenabled && ((renderX+1 >= wx) && (lines >= wy))) {
             wlyenabled = true;
@@ -162,8 +182,8 @@ namespace GBC {
             winbgpal = 0;
         }
         
-        objpix = ((((objpal >> 4) & 1) ? bus->read_privledged(OBP1) : bus->read_privledged(OBP0)) >> ((objpal&03) * 2)) & 0x3;
-        winbgpix = (bus->read(BGP) >> (winbgpal*2))&0x3;
+        objpix = ((((objpal >> 4) & 1) ? cached_OBP1 : cached_OBP0) >> ((objpal&03) * 2)) & 0x3;
+        winbgpix = (cached_BGP >> (winbgpal*2))&0x3;
 
         if (objenable) {
             if (((((objpal&3) == 0) ||(objpal & 0x80)) && (winbgpal != 0)) || (objpal == (1 << 5))) {
@@ -177,11 +197,11 @@ namespace GBC {
         }
 
         if (debug_render) {
-            objpal = (((objpal >> 4) & 1 ? bus->read_privledged(OBP1) : bus->read_privledged(OBP0)) >> ((objpal&03) * 2)) & 0x3;
+            objpal = (((objpal >> 4) & 1 ? cached_OBP1 : cached_OBP0) >> ((objpal&03) * 2)) & 0x3;
             SDL_SetRenderDrawColor(debug_object_renderer, 255-(255.0/3)*(objpal), 255-(255.0/3)*(objpal), 255-(255.0/3)*(objpal), 255);
             SDL_RenderPoint(debug_object_renderer,renderX-6, lines);    
 
-            winpal = (bus->read(BGP) >> (winpal*2))&0x3;
+            winpal = (cached_BGP >> (winpal*2))&0x3;
             SDL_SetRenderDrawColor(debug_window_renderer, 255-(255.0/3)*(winpal), 255-(255.0/3)*(winpal), 255-(255.0/3)*(winpal), 255);
             SDL_RenderPoint(debug_window_renderer,renderX-6, lines);    
         }
@@ -191,10 +211,9 @@ namespace GBC {
         SDL_RenderPoint(renderer,renderX++-6, lines);   
     }
 
-    // TODO fix issues
     inline byte PPU::objFIFO() {
         byte tilei = 255;
-        byte objsize = (bus->read(LCDC) & (1 << 2)) ? 16 : 8;
+        byte objsize = (cached_LCDC & (1 << 2)) ? 16 : 8;
         
         uint8_t tilex = 0;
 
@@ -226,7 +245,7 @@ namespace GBC {
              prio = flags & (1 << 7);
 
 
-        half tile_address = 0x8000+index*16 + (Yflip ? (objsize-1-(lines-objy))*2 : (lines-objy)*2); // TODO extract into function, maybe?
+        half tile_address = 0x8000+index*16 + (Yflip ? (objsize-1-(lines-objy))*2 : (lines-objy)*2);
 
         byte tilelow = bus->read(tile_address),
             tilehigh = bus->read(tile_address+1);
@@ -238,12 +257,10 @@ namespace GBC {
     }
 
     inline byte PPU::bgFIFO(half tilex, half tiley) {
-        byte bgenable = bus->read(LCDC) & 1;
+        half BG_tile_map = (cached_LCDC & (1 << 3)) ? 0x9C00 : 0x9800;
+        byte data_area = (cached_LCDC & (1 << 4));
 
-        half BG_tile_map = (bus->read(LCDC) & (1 << 3)) ? 0x9C00 : 0x9800;
-        byte data_area = (bus->read(LCDC) & (1 << 4));
-
-        
+        uint8_t tiley_mod8 = tiley & 7;
         half tile_index_index = (tilex/8)+((tiley)/8)*32 + BG_tile_map;
 
         byte tile_index = bus->read(tile_index_index);
@@ -251,24 +268,23 @@ namespace GBC {
         byte tilelow, tilehigh;
 
         if (data_area != 0) {
-            tilelow = bus->read(tile_index*16+(tiley%8)*2+0x8000);
-            tilehigh = bus->read(tile_index*16+(tiley%8)*2+1+0x8000);
+            tilelow = bus->read(tile_index*16+tiley_mod8*2+0x8000);
+            tilehigh = bus->read(tile_index*16+tiley_mod8*2+1+0x8000);
         } else {
-
-            tilelow = bus->read((tiley%8)*2+0x9000+((int8_t)tile_index)*16);
-            tilehigh = bus->read((tiley%8)*2+1+0x9000+((int8_t)tile_index)*16);
+            tilelow = bus->read(tiley_mod8*2+0x9000+((int8_t)tile_index)*16);
+            tilehigh = bus->read(tiley_mod8*2+1+0x9000+((int8_t)tile_index)*16);
         }
 
-        byte final_pixel = (((1 << (7-tilex%8)) & tilelow) != 0) | ((((1 << (7-tilex%8)) & tilehigh) != 0) << 1);
+        uint8_t tilex_mod8 = tilex & 7;
+        byte final_pixel = (((1 << (7-tilex_mod8)) & tilelow) != 0) | ((((1 << (7-tilex_mod8)) & tilehigh) != 0) << 1);
         return final_pixel;
     }
 
     inline byte PPU::windowFIFO(half tilex, half tiley) {
-        byte windowEnable = (bus->read(LCDC) & (1 << 5));
+        half w_tile_map = (cached_LCDC & (1 << 6)) ? 0x9C00 : 0x9800;  
+        byte data_area = (cached_LCDC & (1 << 4));
 
-        half w_tile_map = (bus->read(LCDC) & (1 << 6)) ? 0x9C00 : 0x9800;  
-        byte data_area = (bus->read(LCDC) & (1 << 4));
-
+        uint8_t tiley_mod8 = tiley & 7;
         half tile_index_index = (tilex/8)+((tiley)/8)*32;
 
         byte tile_index = bus->read(tile_index_index+w_tile_map);
@@ -276,19 +292,20 @@ namespace GBC {
         byte tilelow, tilehigh;
 
         if (data_area) {
-            tilelow = bus->read(tile_index*16+(tiley%8)*2+0x8000);
-            tilehigh = bus->read(tile_index*16+(tiley%8)*2+1+0x8000);
+            tilelow = bus->read(tile_index*16+tiley_mod8*2+0x8000);
+            tilehigh = bus->read(tile_index*16+tiley_mod8*2+1+0x8000);
         } else {
             if (tile_index <= 127) {
-                tilelow = bus->read((tiley%8)*2+0x9000+tile_index*16);
-                tilehigh = bus->read((tiley%8)*2+1+0x9000+tile_index*16);
+                tilelow = bus->read(tiley_mod8*2+0x9000+tile_index*16);
+                tilehigh = bus->read(tiley_mod8*2+1+0x9000+tile_index*16);
             } else {
-                tilelow = bus->read((tiley%8)*2+0x9000+((int8_t)tile_index)*16);
-                tilehigh = bus->read((tiley%8)*2+1+0x9000+((int8_t)tile_index)*16);
+                tilelow = bus->read(tiley_mod8*2+0x9000+((int8_t)tile_index)*16);
+                tilehigh = bus->read(tiley_mod8*2+1+0x9000+((int8_t)tile_index)*16);
             }
         }
 
-        byte final_pixel = (((1 << (7-tilex%8)) & tilelow) != 0) | ((((1 << (7-tilex%8)) & tilehigh) != 0) << 1);
+        uint8_t tilex_mod8 = tilex & 7;
+        byte final_pixel = (((1 << (7-tilex_mod8)) & tilelow) != 0) | ((((1 << (7-tilex_mod8)) & tilehigh) != 0) << 1);
 
         return final_pixel; 
     }

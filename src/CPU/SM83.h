@@ -24,11 +24,12 @@ namespace GBC {
 
         byte r8[8];
 
-        uint32_t divcounter = 0, timacounter = 0, timareg, tacreg; // TODO probably should maybe make these have underscores
+        uint32_t divcounter = 0, timacounter = 0, timareg, tacreg;
         uint16_t pc = 0, sp = 0xFFFE;
         uint16_t opcode = 0;
         uint8_t cycles = 0;
         bool IME = false, IMEdelay = false, halted = false, stathigh = false;
+        uint8_t cached_interrupt_flags = 0;
 
         void execute();
         inline void executeCB();
@@ -61,10 +62,10 @@ namespace GBC {
         //===========================================================
         // Fetch functions
         //===========================================================
-        inline uint8_t fetch8() {
+        __attribute__((always_inline)) inline uint8_t fetch8() {
             return memory->read(pc++);
         }
-        inline uint16_t fetch16() {
+        __attribute__((always_inline)) inline uint16_t fetch16() {
             uint16_t result = memory->read(pc) | (memory->read(pc + 1) << 8);
             pc += 2;
             return result;
