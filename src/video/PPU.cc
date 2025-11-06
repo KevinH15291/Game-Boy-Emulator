@@ -85,10 +85,10 @@ namespace GBC {
                     byte objsize = (cached_LCDC & (1 << 2)) ? 16 : 8;
                     
                     for (int16_t i = 0x00; i < 0x9F; i+=4) {
-                        byte objy = bus->read_privledged(0xFE00+i)-16,
-                        objx = bus->read_privledged(0xFE00+i+1),
-                        index = bus->read_privledged(0xFE00+i+2),
-                        flags = bus->read_privledged(0xFE00+i+3); 
+                        byte objy = bus->read_privledged(OAMaddress+i)-16,
+                        objx = bus->read_privledged(OAMaddress+i+1),
+                        index = bus->read_privledged(OAMaddress+i+2),
+                        flags = bus->read_privledged(OAMaddress+i+3); 
                         if (objy <= lines && objy+objsize > lines) {
                             objbuffer[objnum].objx = objx,
                             objbuffer[objnum].objy = objy,
@@ -248,7 +248,7 @@ namespace GBC {
              prio = flags & (1 << 7);
 
 
-        half tile_address = 0x8000+index*16 + (Yflip ? (objsize-1-(lines-objy))*2 : (lines-objy)*2); // TODO extract into function, maybe?
+        half tile_address = VIDEO_RAM+index*16 + (Yflip ? (objsize-1-(lines-objy))*2 : (lines-objy)*2);
 
         byte tilelow = bus->read(tile_address),
             tilehigh = bus->read(tile_address+1);
@@ -275,8 +275,8 @@ namespace GBC {
         uint8_t tilex_mod8 = tilex & 7;
 
         if (data_area != 0) {
-            tilelow = bus->read(tile_index*16+tiley_mod8*2+0x8000);
-            tilehigh = bus->read(tile_index*16+tiley_mod8*2+1+0x8000);
+            tilelow = bus->read(tile_index*16+tiley_mod8*2+VIDEO_RAM);
+            tilehigh = bus->read(tile_index*16+tiley_mod8*2+1+VIDEO_RAM);
         } else {
             tilelow = bus->read(tiley_mod8*2+0x9000+((int8_t)tile_index)*16);
             tilehigh = bus->read(tiley_mod8*2+1+0x9000+((int8_t)tile_index)*16);
@@ -301,8 +301,8 @@ namespace GBC {
         uint8_t tilex_mod8 = tilex & 7;
 
         if (data_area) {
-            tilelow = bus->read(tile_index*16+tiley_mod8*2+0x8000);
-            tilehigh = bus->read(tile_index*16+tiley_mod8*2+1+0x8000);
+            tilelow = bus->read(tile_index*16+tiley_mod8*2+VIDEO_RAM);
+            tilehigh = bus->read(tile_index*16+tiley_mod8*2+1+VIDEO_RAM);
         } else {
             if (tile_index <= 127) {
                 tilelow = bus->read(tiley_mod8*2+0x9000+tile_index*16);

@@ -991,11 +991,11 @@ namespace GBC {
     }
     
     inline void SM83::instrLDH_C_A() {
-        memory->write(0xFF00 + RC, RA);
+        memory->write(IO_REGISTERS + RC, RA);
     }
     
     inline void SM83::instrLDH_Imm8_A() {
-        memory->write(0xFF00 | fetch8(), RA);
+        memory->write(IO_REGISTERS | fetch8(), RA);
     }
     
     inline void SM83::instrLD_Imm16_A() {
@@ -1004,11 +1004,11 @@ namespace GBC {
     }
     
     inline void SM83::instrLDH_A_C() {
-        RA = memory->read(0xFF00 | RC);  
+        RA = memory->read(IO_REGISTERS | RC);  
     }
     
     inline void SM83::instrLDH_A_Imm8() {
-        RA = memory->read(0xFF00 | fetch8());
+        RA = memory->read(IO_REGISTERS | fetch8());
     }
     
     inline void SM83::instrLD_A_Imm16() {

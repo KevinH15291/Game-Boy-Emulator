@@ -1,16 +1,15 @@
 #pragma once 
 
-#include <stdlib.h>
-#include <assert.h>
+#include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <cassert>
+#include <thread>
 
 #include "CPU/SM83.h"
-
 #include "MMU/bus.h"
 #include "video/PPU.h"
 #include "bus.h"
-
-#include <thread>
 
 namespace GBC {
     using namespace std::chrono_literals;
