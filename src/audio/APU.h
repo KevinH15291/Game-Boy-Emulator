@@ -1,8 +1,8 @@
 #pragma once
 
 #ifdef __EMSCRIPTEN__
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_audio.h>
+#include <SDL.h>
+#include <SDL_audio.h>
 #else
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_audio.h>

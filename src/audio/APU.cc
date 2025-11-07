@@ -1,7 +1,7 @@
 #include "APU.h"
 
 #ifdef __EMSCRIPTEN__
-#include <SDL2/SDL_audio.h>
+#include <SDL_audio.h>
 #else
 #include <SDL3/SDL_audio.h>
 #endif
