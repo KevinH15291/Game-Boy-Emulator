@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>CGB Emulator</title>
+    <style>
+      body {
+        margin: 0;
+        background: #111;
+        color: #eee;
+        font-family: sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      #controls,
+      #channelToggles {
+        padding: 0.5rem;
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+      }
+      #channelToggles label {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        background: #222;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+      }
+      #canvas {
+        width: 640px;
+        height: 576px;
+        image-rendering: pixelated;
+        border: 1px solid #333;
+        background: #000;
+        margin: 1rem 0;
+      }
+      #fpsCounter {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.875rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="controls">
+      <input type="file" id="romInput" accept=".gb,.gbc" />
+      <span id="status">Initializing…</span>
+    </div>
+    <div id="channelToggles">
+      <label><input type="checkbox" data-channel="0" checked /> Ch1</label>
+      <label><input type="checkbox" data-channel="1" checked /> Ch2</label>
+      <label><input type="checkbox" data-channel="2" checked /> Ch3</label>
+      <label><input type="checkbox" data-channel="3" checked /> Ch4</label>
+    </div>
+    <div id="fpsCounter">FPS: --</div>
+    <canvas id="canvas"></canvas>
+    <script>
+      const statusEl = document.getElementById("status");
+      const fpsEl = document.getElementById("fpsCounter");
+      let runtimeReady = false;
+      let lastFrameCount = 0;
+      let lastFpsUpdate = 0;
+      var Module = typeof Module !== "undefined" ? Module : {};
+      Module.canvas = document.getElementById("canvas");
+      Module.onRuntimeInitialized = function () {
+        runtimeReady = true;
+        statusEl.textContent = "Ready";
+        console.log("Runtime initialized");
+        console.log("Module.HEAPU8 available:", !!Module.HEAPU8);
+        console.log("Module._malloc available:", !!Module._malloc);
+        console.log("Module._upload_rom available:", !!Module._upload_rom);
+        if (Module._is_channel_muted) {
+          document.querySelectorAll("#channelToggles input").forEach((el) => {
+            const channel = parseInt(el.dataset.channel, 10);
+            el.checked = Module._is_channel_muted(channel) === 0 ? true : false;
+          });
+        }
+        lastFpsUpdate = performance.now();
+        updateFPS();
+      };
+
+      function updateFPS() {
+        if (!runtimeReady || !Module._get_frame_count) {
+          requestAnimationFrame(updateFPS);
+          return;
+        }
+        const now = performance.now();
+        const currentFrameCount = Module._get_frame_count();
+        const elapsed = now - lastFpsUpdate;
+
+        if (elapsed >= 1000) {
+          const fps = ((currentFrameCount - lastFrameCount) * 1000) / elapsed;
+          fpsEl.textContent = `FPS: ${fps.toFixed(1)}`;
+          lastFrameCount = currentFrameCount;
+          lastFpsUpdate = now;
+        }
+
+        requestAnimationFrame(updateFPS);
+      }
+
+      const KEY_MAP = {
+        KeyX: { button: 0, pressed: false },
+        KeyZ: { button: 1, pressed: false },
+        Slash: { button: 2, pressed: false }, // Select
+        Enter: { button: 3, pressed: false }, // Start
+        ArrowRight: { button: 4, pressed: false },
+        ArrowLeft: { button: 5, pressed: false },
+        ArrowUp: { button: 6, pressed: false },
+        ArrowDown: { button: 7, pressed: false },
+      };
+
+      function updateKey(event, isPressed) {
+        const entry = KEY_MAP[event.code];
+        if (!entry || !runtimeReady) return;
+        if (entry.pressed === isPressed) return;
+        entry.pressed = isPressed;
+        if (Module._set_button_state) {
+          Module._set_button_state(entry.button, isPressed ? 1 : 0);
+        }
+        event.preventDefault();
+      }
+
+      window.addEventListener("keydown", (e) => updateKey(e, true));
+      window.addEventListener("keyup", (e) => updateKey(e, false));
+
+      document.getElementById("romInput").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (!runtimeReady) {
+          statusEl.textContent = "Runtime still starting…";
+          return;
+        }
+        statusEl.textContent = `Loading ${file.name}…`;
+        const reader = new FileReader();
+        reader.onload = function () {
+          const data = new Uint8Array(reader.result);
+          let ptr = 0;
+          try {
+            if (!Module._malloc || !Module._free) {
+              throw new Error("Allocator not ready");
+            }
+            ptr = Module._malloc(data.length);
+            if (!ptr) {
+              throw new Error("Failed to allocate memory");
+            }
+            if (Module.writeArrayToMemory) {
+              Module.writeArrayToMemory(data, ptr);
+            } else if (Module.HEAPU8) {
+              Module.HEAPU8.set(data, ptr);
+            } else if (Module.HEAP8) {
+              for (let i = 0; i < data.length; i++) {
+                Module.HEAP8[ptr + i] = data[i];
+              }
+            } else {
+              for (let i = 0; i < data.length; i++) {
+                Module.setValue(ptr + i, data[i], "i8");
+              }
+            }
+            const result = Module.ccall(
+              "upload_rom",
+              "number",
+              ["number", "number"],
+              [ptr, data.length]
+            );
+            console.log("upload_rom returned", result);
+            statusEl.textContent =
+              result === 1 ? `Loaded ${file.name}` : "Failed to load ROM";
+          } catch (err) {
+            console.error("ROM upload threw", err);
+            statusEl.textContent = "Error loading ROM: " + err.message;
+          } finally {
+            if (ptr && Module._free) {
+              Module._free(ptr);
+            }
+          }
+        };
+        reader.onerror = (err) => {
+          console.error("FileReader error", err);
+          statusEl.textContent = "Error reading ROM";
+        };
+        reader.readAsArrayBuffer(file);
+      });
+
+      document.querySelectorAll("#channelToggles input").forEach((el) => {
+        el.addEventListener("change", () => {
+          if (!runtimeReady || !Module._set_channel_muted) return;
+          const channel = parseInt(el.dataset.channel, 10);
+          Module._set_channel_muted(channel, el.checked ? 0 : 1);
+        });
+      });
+    </script>
+    <script async type="text/javascript" src="GBC.js"></script>
+  </body>
+</html>

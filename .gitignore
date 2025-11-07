@@ -17,3 +17,5 @@ compile_commands.json
 *.txt
 *.bin
 *.gb
+
+build_wasm/
