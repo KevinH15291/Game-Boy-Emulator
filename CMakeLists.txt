@@ -19,34 +19,24 @@ if(ENABLE_PROFILING)
     message(STATUS "Profiling enabled with gprof")
 endif()
 
-add_executable(GBC
-  src/GBC.cc
-  src/CPU/SM83.cc
-  src/MMU/bus.cc
-  src/video/PPU.cc
-  src/audio/APU.cc
-  test.cc
-)
-
-if(ENABLE_EMSCRIPTEN)
-  target_compile_options(GBC PUBLIC
-    "-sUSE_SDL=3"
-    "-sALLOW_MEMORY_GROWTH=1"
-    "-sASYNCIFY"
-  )
-  target_link_options(GBC PUBLIC
-    "-sUSE_SDL=3"
-    "-sALLOW_MEMORY_GROWTH=1"
-    "-sASYNCIFY"
-    "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/shell.html"
-    "-sEXPORTED_FUNCTIONS=['_main']"
-    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']"
-  )
+if(EMSCRIPTEN)
+    target_compile_options(GBC PUBLIC -O3 -flto)
+    target_link_options(GBC PUBLIC -O3 -flto -sASSERTIONS=0 -sDISABLE_EXCEPTION_CATCHING=1 -sMALLOC=emmalloc)
 else()
-  find_package(SDL3 CONFIG REQUIRED)
-  target_link_libraries(GBC PRIVATE SDL3::SDL3)
+    target_compile_options(GBC PUBLIC -O3)
 endif()
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+
+
+
+
+if(EMSCRIPTEN)
+    target_compile_options(GBC PUBLIC -O3 -flto)
+    target_link_options(GBC PUBLIC -O3 -flto -sASSERTIONS=0 -sDISABLE_EXCEPTION_CATCHING=1 -sMALLOC=emmalloc)
+else()
+    target_compile_options(GBC PUBLIC -O3)
+endif()
+
+find_package(SDL3)
 
 include_directories(src src/CPU src/MMU src/video src/audio)
 

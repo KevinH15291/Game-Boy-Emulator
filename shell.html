@@ -13,13 +13,22 @@
         flex-direction: column;
         align-items: center;
       }
-      #controls {
+      #controls,
+      #channelToggles {
         padding: 0.5rem;
         display: flex;
         gap: 0.5rem;
         align-items: center;
         justify-content: center;
         width: 100%;
+      }
+      #channelToggles label {
+        display: flex;
+        align-items: center;
+        gap: 0.25rem;
+        background: #222;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
       }
       #canvas {
         width: 320px;
@@ -36,6 +45,12 @@
       <input type="file" id="romInput" accept=".gb,.gbc" />
       <span id="status">Initializing…</span>
     </div>
+    <div id="channelToggles">
+      <label><input type="checkbox" data-channel="0" checked /> Ch1</label>
+      <label><input type="checkbox" data-channel="1" checked /> Ch2</label>
+      <label><input type="checkbox" data-channel="2" checked /> Ch3</label>
+      <label><input type="checkbox" data-channel="3" checked /> Ch4</label>
+    </div>
     <canvas id="canvas"></canvas>
     <script>
       const statusEl = document.getElementById("status");
@@ -46,6 +61,12 @@
         runtimeReady = true;
         statusEl.textContent = "Ready";
         console.log("Runtime initialized");
+        if (Module._is_channel_muted) {
+          document.querySelectorAll("#channelToggles input").forEach((el) => {
+            const channel = parseInt(el.dataset.channel, 10);
+            el.checked = Module._is_channel_muted(channel) === 0 ? true : false;
+          });
+        }
       };
 
       const KEY_MAP = {
@@ -115,7 +136,15 @@
         };
         reader.readAsArrayBuffer(file);
       });
+
+      document.querySelectorAll("#channelToggles input").forEach((el) => {
+        el.addEventListener("change", () => {
+          if (!runtimeReady || !Module._set_channel_muted) return;
+          const channel = parseInt(el.dataset.channel, 10);
+          Module._set_channel_muted(channel, el.checked ? 0 : 1);
+        });
+      });
     </script>
-    {{{ SCRIPT }}}
+    <script async type="text/javascript" src="GBC.js"></script>
   </body>
 </html>

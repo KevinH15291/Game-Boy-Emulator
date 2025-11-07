@@ -7,7 +7,38 @@
 #include <stdexcept>
 
 constexpr float AMPLITUDE = 0.5;
-constexpr int SAMPLE_RATE = 44100;
+constexpr int SAMPLE_RATE = 44032;
+
+// void audio_callback(void *user_data, Uint8 *raw_buffer, int bytes)
+// {
+//     int8_t *buffer = (int8_t*)raw_buffer;
+//     int length = bytes ; // 2 bytes per sample for AUDIO_S16SYS
+//     square &info(*(square*)user_data);
+//     int &sample_nr = info.sample_nr;
+//     float tone = info.tone;
+//     float amplitude = info.amplitude;
+
+//     int8_t wave[16] = {127 ,111,95,79,63,47,31,15,-1, -17, -33, -49, -65, -81, -97, -113};
+//     for(int i = 0; i < length; i++, sample_nr++)
+//     {
+//         int j = ((i + sample_nr)/16)%4;
+//         double time = (double)sample_nr / (double)SAMPLE_RATE;
+
+//         buffer[i] = wave[j];
+//     }
+// }
+
+// void SDLCALL MyNewAudioCallbac   k(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
+// {
+//     if (additional_amount > 0) {
+//         Uint8 *data = SDL_stack_alloc(Uint8, additional_amount);
+//         if (data) {
+//             audio_callback(userdata, data, additional_amount);
+//             SDL_PutAudioStreamData(stream, data, additional_amount);
+//             SDL_stack_free(data);
+//         }
+//     }
+// }
 
 struct square {
     int sample_nr = 0;
@@ -22,7 +53,6 @@ float square_wave(double n, uint8_t duty) {
             return ((int)n%8 == 0) ? -1.0f : 1.0f;
         case 1:
             return ((int)n%8 < 2) ? -1.0f : 1.0f;
-
         case 2:
             return ((int)n%8 < 4) ? 1.0f : -1.0f;
         case 3:
@@ -32,52 +62,37 @@ float square_wave(double n, uint8_t duty) {
     }
 }
 
-void audio_callback(void *user_data, Uint8 *raw_buffer, int bytes)
-{
-    int8_t *buffer = (int8_t*)raw_buffer;
-    int length = bytes ; // 2 bytes per sample for AUDIO_S16SYS
-    square &info(*(square*)user_data);
-    int &sample_nr = info.sample_nr;
-    float tone = info.tone;
-    float amplitude = info.amplitude;
-
-    int8_t wave[16] = {127 ,111,95,79,63,47,31,15,-1, -17, -33, -49, -65, -81, -97, -113};
-    for(int i = 0; i < length; i++, sample_nr++)
-    {
-        int j = ((i +sample_nr)/16)%4;
-        double time = (double)sample_nr / (double)SAMPLE_RATE;
-
-        buffer[i] = wave[j];
-
-
-
-    }
-}
-
-void SDLCALL MyNewAudioCallback(void *userdata, SDL_AudioStream *stream, int additional_amount, int total_amount)
-{
-    if (additional_amount > 0) {
-        Uint8 *data = SDL_stack_alloc(Uint8, additional_amount);
-        if (data) {
-            audio_callback(userdata, data, additional_amount);
-            SDL_PutAudioStreamData(stream, data, additional_amount);
-            SDL_stack_free(data);
-        }
-    }
-}
 
 int main() {
     SDL_Init(SDL_INIT_AUDIO);
     SDL_InitSubSystem(SDL_INIT_AUDIO);
 
-    int sample_nr = 0;
 
-    square c1 = {0, 2, 440, 0.5}, c2 = {0, 1, 440, 0.5};
+    square c1 = {0, 2, 440, 30}, c2 = {0, 1, 440, 0.5};
 
-    const SDL_AudioSpec c1spec = { SDL_AUDIO_U8, 1, SAMPLE_RATE };
-    SDL_AudioStream *channel1 = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &c1spec, MyNewAudioCallback, &c1);
+    const SDL_AudioSpec c1spec = { SDL_AUDIO_S8, 1, SAMPLE_RATE};
+    SDL_AudioStream *channel1 = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &c1spec, NULL, &c1);
+    if (channel1 == NULL) {
+        printf("Uhoh, stream failed to create: %s\n", SDL_GetError());
+    }
+    SDL_ResumeAudioDevice(SDL_GetAudioStreamDevice(channel1));
+
+    square info = c1;
+    int &sample_nr = info.sample_nr;
+    float tone = info.tone;
+
+    uint8_t buffer[44032];
+    for(int i = 0; i < 44032; i++, sample_nr++)
+    {
+        double time = (double)sample_nr / (double)SAMPLE_RATE;
+        buffer[i] = (info.amplitude * square_wave( 8*tone * time, info.duty));
+    }
 
     SDL_ResumeAudioDevice(SDL_GetAudioStreamDevice(channel1));
+    SDL_PutAudioStreamData(channel1, buffer, 44032);
+
+    SDL_Delay(1500);
+
 
 
     //tetr
@@ -87,7 +102,6 @@ int main() {
 
     // c2.tone = 659;
     // c1.tone = 494;
-    SDL_Delay(5000);
     
     // c1.tone = 494;
     // c2.tone = 415;

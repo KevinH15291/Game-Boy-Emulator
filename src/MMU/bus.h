@@ -9,6 +9,9 @@
 #include <type_traits>
 
 namespace GBC {
+
+class APU;
+
 using byte = uint8_t;
 using half = uint16_t;
 
@@ -120,8 +123,8 @@ class address_bus {
     uint8_t readIO(half address);
 
     byte check_set(half address, byte value);
-    inline void set_bit(half address, byte bit);
-    inline void reset_bit(half address, byte bit);
+    void set_bit(half address, byte bit);
+    void reset_bit(half address, byte bit);
 
     void load_boot_ROM(const char *fname, uint32_t size);
     void load_ROM(const char *fname, uint32_t size);
@@ -153,15 +156,15 @@ class address_bus {
     void toggle_booting() { booting = !booting; }
 
    private:
-    std::array<byte, BOOTROM_SIZE> bootrom{};
-    std::array<byte, MB> cartROM{};
-    std::array<byte, CART_RAM_SIZE> cartRAM{};
-    std::array<byte, WORK_RAM_SIZE> workRAM{};
-    std::array<byte, VIDEO_RAM_SIZE> videoRAM{};
-    std::array<byte, OAM_SIZE> OAM{};
-    std::array<byte, IO_RANGE_SIZE> IOrange{};
-    std::array<byte, HRAM_SIZE> HRAM{};
-    std::array<byte, 4> rt{};
+    std::array<byte, BOOTROM_SIZE> bootrom;
+    std::array<byte, MB> cartROM;
+    std::array<byte, CART_RAM_SIZE> cartRAM;
+    std::array<byte, WORK_RAM_SIZE> workRAM;
+    std::array<byte, VIDEO_RAM_SIZE> videoRAM;
+    std::array<byte, OAM_SIZE> OAM;
+    std::array<byte, IO_RANGE_SIZE> IOrange;
+    std::array<byte, HRAM_SIZE> HRAM;
+    std::array<byte, 4> rt;
 
     RenderingState lcd_mode = RenderingState::hblank;
 
@@ -182,6 +185,8 @@ class address_bus {
     bool booting = false;
     bool latched = false;
     bool debug = false;
+
+    class APU *apu = nullptr;
 
     friend class SM83;
     friend class PPU;
