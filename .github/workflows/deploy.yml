@@ -26,7 +26,6 @@ jobs:
         uses: mymindstorm/setup-emsdk@v13
         with:
           version: latest
-          actions-cache-folder: ~/.emscripten_cache
 
       - name: Configure CMake
         run: |
