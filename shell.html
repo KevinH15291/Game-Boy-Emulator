@@ -22,6 +22,21 @@
         justify-content: center;
         width: 100%;
       }
+      #exportSaveBtn {
+        background: #333;
+        color: #eee;
+        border: 1px solid #555;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: sans-serif;
+      }
+      #exportSaveBtn:hover {
+        background: #444;
+      }
+      #exportSaveBtn:active {
+        background: #222;
+      }
       #channelToggles label {
         display: flex;
         align-items: center;
@@ -53,6 +68,7 @@
   <body>
     <div id="controls">
       <input type="file" id="romInput" accept=".gb,.gbc" />
+      <button id="exportSaveBtn">Export Save</button>
       <span id="status">Initializing…</span>
     </div>
     <div id="channelToggles">
@@ -196,6 +212,35 @@
           const channel = parseInt(el.dataset.channel, 10);
           Module._set_channel_muted(channel, el.checked ? 0 : 1);
         });
+      });
+
+      document.getElementById("exportSaveBtn").addEventListener("click", () => {
+        if (!runtimeReady || !Module._get_cart_ram_ptr || !Module._get_cart_ram_size) {
+          statusEl.textContent = "Not ready";
+          return;
+        }
+        try {
+          const ptr = Module._get_cart_ram_ptr();
+          const size = Module._get_cart_ram_size();
+          if (!ptr || size <= 0) {
+            statusEl.textContent = "No save data available";
+            return;
+          }
+          const ramData = new Uint8Array(Module.HEAPU8.buffer, ptr, size);
+          const blob = new Blob([ramData], { type: "application/octet-stream" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "save.bin";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          statusEl.textContent = "Save exported";
+        } catch (err) {
+          console.error("Export save error", err);
+          statusEl.textContent = "Error exporting save";
+        }
       });
     </script>
     <script async type="text/javascript" src="GBC.js"></script>

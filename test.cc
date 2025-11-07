@@ -54,6 +54,15 @@ int get_frame_count() {
     return g_gbc->frame;
 }
 
+void* get_cart_ram_ptr() {
+    if (!g_gbc) return nullptr;
+    return g_gbc->addresses.get_cartRAM();
+}
+
+int get_cart_ram_size() {
+    return 32 * 1024;
+}
+
 void emscripten_frame_loop(void* arg) {
     GBC::GBC* gbc = static_cast<GBC::GBC*>(arg);
     gbc->execute_frame();
