@@ -39,7 +39,9 @@ jobs:
       - name: Copy files to docs
         run: |
           mkdir -p docs
-          cp build_wasm/index.html build_wasm/GBC.js build_wasm/GBC.wasm docs/
+          cp build_wasm/GBC.html docs/index.html
+          cp build_wasm/GBC.js docs/
+          cp build_wasm/GBC.wasm docs/
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
