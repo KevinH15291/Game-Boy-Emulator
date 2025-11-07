@@ -1,6 +1,7 @@
 #include "bus.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -143,6 +144,13 @@ byte address_bus::read(half address) {
     if (address >= addr(MemoryRegion::EXTERNAL_RAM) &&
         address <= addr(MemoryRegion::END_EXTERNAL_RAM)) {
         if (!RAMenable) {
+            return 0xFF;
+        }
+        if (static_cast<int>(mbc) == 0x13 && rtc_selected_register != 0) {
+            uint8_t reg_index = rtc_selected_register - 0x08;
+            if (reg_index < 5) {
+                return rtc_latched[reg_index];
+            }
             return 0xFF;
         }
         if (static_cast<int>(mbc) == 0x05 || static_cast<int>(mbc) == 0x06) {
@@ -362,6 +370,20 @@ void address_bus::write(half address, byte value) {
     if (address >= addr(MemoryRegion::EXTERNAL_RAM) &&
         address <= addr(MemoryRegion::END_EXTERNAL_RAM)) {
         if (!RAMenable) {
+            return;
+        }
+        if (static_cast<int>(mbc) == 0x13 && rtc_selected_register != 0) {
+            uint8_t reg_index = rtc_selected_register - 0x08;
+            if (reg_index < 5) {
+                rtc_registers[reg_index] = value;
+                if (reg_index == 4) {
+                    rtc_halted = (value & 0x40) != 0;
+                    if ((value & 0x80) != 0) {
+                        rtc_registers[4] &= 0x7F;
+                        rtc_registers[3] = 0;
+                    }
+                }
+            }
             return;
         }
         if (static_cast<int>(mbc) == 0x05 || static_cast<int>(mbc) == 0x06) {
@@ -631,12 +653,42 @@ void address_bus::writeMBC3(half address, byte value) {
     if (address >= 0x4000 && address <= 0x5FFF) {
         if (value <= 0x03) {
             eram_bank = static_cast<ExternalRamBank>(value);
+            rtc_selected_register = 0;
         } else if (value >= 0x08 && value <= 0x0C) {
+            rtc_selected_register = value;
+            eram_bank = ExternalRamBank::Bank0;
         }
         return;
     }
 
     if (address >= 0x6000 && address <= 0x7FFF) {
+        if (latch_write == 0x00 && value == 0x01) {
+            if (!rtc_halted) {
+                auto now = std::chrono::system_clock::now();
+                auto duration = now.time_since_epoch();
+                auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+                if (rtc_epoch == 0) {
+                    rtc_epoch = seconds;
+                }
+                seconds -= rtc_epoch;
+                
+                uint64_t days = seconds / 86400;
+                seconds %= 86400;
+                uint8_t hours = (seconds / 3600) % 24;
+                seconds %= 3600;
+                uint8_t minutes = (seconds / 60) % 60;
+                seconds %= 60;
+                
+                rtc_latched[0] = seconds & 0x3F;
+                rtc_latched[1] = minutes & 0x3F;
+                rtc_latched[2] = hours & 0x1F;
+                rtc_latched[3] = days & 0xFF;
+                rtc_latched[4] = ((days >> 8) & 0x01) | (rtc_halted ? 0x40 : 0) | ((days >= 512) ? 0x80 : 0);
+            } else {
+                rtc_latched = rtc_registers;
+            }
+        }
+        latch_write = value;
         return;
     }
 }

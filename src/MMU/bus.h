@@ -164,7 +164,11 @@ class address_bus {
     std::array<byte, OAM_SIZE> OAM;
     std::array<byte, IO_RANGE_SIZE> IOrange;
     std::array<byte, HRAM_SIZE> HRAM;
-    std::array<byte, 4> rt;
+    std::array<byte, 5> rtc_registers = {0, 0, 0, 0, 0};
+    std::array<byte, 5> rtc_latched = {0, 0, 0, 0, 0};
+    bool rtc_halted = false;
+    uint64_t rtc_epoch = 0;
+    uint8_t rtc_selected_register = 0;
 
     RenderingState lcd_mode = RenderingState::hblank;
 
