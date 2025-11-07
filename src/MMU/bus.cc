@@ -67,6 +67,11 @@ void address_bus::load_ROM_buffer(const uint8_t* data, size_t length) {
     }
 }
 
+void address_bus::load_RAM_buffer(const uint8_t* data, size_t length) {
+    size_t copy_size = std::min(length, static_cast<size_t>(CART_RAM_SIZE));
+    std::memcpy(cartRAM.data(), data, copy_size);
+}
+
 void address_bus::set_boot_complete(bool completed) { booting = !completed; }
 #endif
 
@@ -666,24 +671,28 @@ void address_bus::writeMBC3(half address, byte value) {
             if (!rtc_halted) {
                 auto now = std::chrono::system_clock::now();
                 auto duration = now.time_since_epoch();
-                auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration).count();
+                auto seconds =
+                    std::chrono::duration_cast<std::chrono::seconds>(duration)
+                        .count();
                 if (rtc_epoch == 0) {
                     rtc_epoch = seconds;
                 }
                 seconds -= rtc_epoch;
-                
+
                 uint64_t days = seconds / 86400;
                 seconds %= 86400;
                 uint8_t hours = (seconds / 3600) % 24;
                 seconds %= 3600;
                 uint8_t minutes = (seconds / 60) % 60;
                 seconds %= 60;
-                
+
                 rtc_latched[0] = seconds & 0x3F;
                 rtc_latched[1] = minutes & 0x3F;
                 rtc_latched[2] = hours & 0x1F;
                 rtc_latched[3] = days & 0xFF;
-                rtc_latched[4] = ((days >> 8) & 0x01) | (rtc_halted ? 0x40 : 0) | ((days >= 512) ? 0x80 : 0);
+                rtc_latched[4] = ((days >> 8) & 0x01) |
+                                 (rtc_halted ? 0x40 : 0) |
+                                 ((days >= 512) ? 0x80 : 0);
             } else {
                 rtc_latched = rtc_registers;
             }

@@ -59,8 +59,16 @@ void* get_cart_ram_ptr() {
     return g_gbc->addresses.get_cartRAM();
 }
 
-int get_cart_ram_size() {
-    return 32 * 1024;
+int get_cart_ram_size() { return 32 * 1024; }
+
+int import_save(uint8_t* data, size_t length) {
+    if (!g_gbc) return 0;
+    try {
+        g_gbc->addresses.load_RAM_buffer(data, length);
+        return 1;
+    } catch (...) {
+        return 0;
+    }
 }
 
 void emscripten_frame_loop(void* arg) {

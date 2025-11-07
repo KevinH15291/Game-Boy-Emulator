@@ -37,6 +37,21 @@
       #exportSaveBtn:active {
         background: #222;
       }
+      #importSaveBtn {
+        background: #333;
+        color: #eee;
+        border: 1px solid #555;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        cursor: pointer;
+        font-family: sans-serif;
+      }
+      #importSaveBtn:hover {
+        background: #444;
+      }
+      #importSaveBtn:active {
+        background: #222;
+      }
       #channelToggles label {
         display: flex;
         align-items: center;
@@ -68,6 +83,8 @@
   <body>
     <div id="controls">
       <input type="file" id="romInput" accept=".gb,.gbc" />
+      <input type="file" id="saveInput" accept=".bin,.sav" style="display: none" />
+      <button id="importSaveBtn">Import Save</button>
       <button id="exportSaveBtn">Export Save</button>
       <span id="status">Initializing…</span>
     </div>
@@ -215,7 +232,11 @@
       });
 
       document.getElementById("exportSaveBtn").addEventListener("click", () => {
-        if (!runtimeReady || !Module._get_cart_ram_ptr || !Module._get_cart_ram_size) {
+        if (
+          !runtimeReady ||
+          !Module._get_cart_ram_ptr ||
+          !Module._get_cart_ram_size
+        ) {
           statusEl.textContent = "Not ready";
           return;
         }
@@ -227,7 +248,9 @@
             return;
           }
           const ramData = new Uint8Array(Module.HEAPU8.buffer, ptr, size);
-          const blob = new Blob([ramData], { type: "application/octet-stream" });
+          const blob = new Blob([ramData], {
+            type: "application/octet-stream",
+          });
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = url;
@@ -241,6 +264,69 @@
           console.error("Export save error", err);
           statusEl.textContent = "Error exporting save";
         }
+      });
+
+      document.getElementById("importSaveBtn").addEventListener("click", () => {
+        document.getElementById("saveInput").click();
+      });
+
+      document.getElementById("saveInput").addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (!runtimeReady) {
+          statusEl.textContent = "Runtime still starting…";
+          return;
+        }
+        statusEl.textContent = `Loading ${file.name}…`;
+        const reader = new FileReader();
+        reader.onload = function () {
+          const data = new Uint8Array(reader.result);
+          let ptr = 0;
+          try {
+            if (!Module._malloc || !Module._free) {
+              throw new Error("Allocator not ready");
+            }
+            ptr = Module._malloc(data.length);
+            if (!ptr) {
+              throw new Error("Failed to allocate memory");
+            }
+            if (Module.writeArrayToMemory) {
+              Module.writeArrayToMemory(data, ptr);
+            } else if (Module.HEAPU8) {
+              Module.HEAPU8.set(data, ptr);
+            } else if (Module.HEAP8) {
+              for (let i = 0; i < data.length; i++) {
+                Module.HEAP8[ptr + i] = data[i];
+              }
+            } else {
+              for (let i = 0; i < data.length; i++) {
+                Module.setValue(ptr + i, data[i], "i8");
+              }
+            }
+            const result = Module.ccall(
+              "import_save",
+              "number",
+              ["number", "number"],
+              [ptr, data.length]
+            );
+            console.log("import_save returned", result);
+            statusEl.textContent =
+              result === 1 ? `Loaded ${file.name}` : "Failed to load save";
+          } catch (err) {
+            console.error("Save import threw", err);
+            statusEl.textContent = "Error loading save: " + err.message;
+          } finally {
+            if (ptr && Module._free) {
+              Module._free(ptr);
+            }
+          }
+        };
+        reader.onerror = (err) => {
+          console.error("FileReader error", err);
+          statusEl.textContent = "Error reading save";
+        };
+        reader.readAsArrayBuffer(file);
+        e.target.value = "";
       });
     </script>
     <script async type="text/javascript" src="GBC.js"></script>

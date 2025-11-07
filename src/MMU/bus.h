@@ -130,6 +130,7 @@ class address_bus {
     void load_ROM(const char *fname, uint32_t size);
 #ifdef __EMSCRIPTEN__
     void load_ROM_buffer(const uint8_t *data, size_t length);
+    void load_RAM_buffer(const uint8_t *data, size_t length);
     void set_boot_complete(bool completed);
     void set_booting(bool value) { booting = value; }
 #endif
