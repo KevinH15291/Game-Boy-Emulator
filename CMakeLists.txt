@@ -42,36 +42,8 @@ set(SOURCES
 # Create executable
 add_executable(GBC ${SOURCES})
 
-# Link libraries
-if(EMSCRIPTEN)
-    # SDL3 is provided via Emscripten port (-sUSE_SDL=3)
-    # No need to link against native SDL3
-else()
-    target_link_libraries(GBC PRIVATE SDL3::SDL3)
-endif()
+add_subdirectory(src/audio)
 
-# Compiler options
-if(EMSCRIPTEN)
-    target_compile_options(GBC PUBLIC -O3 -flto)
-    target_link_options(GBC PUBLIC 
-        -O3 -flto 
-        -sASSERTIONS=0 
-        -sDISABLE_EXCEPTION_CATCHING=1 
-        -sMALLOC=emmalloc
-        -sUSE_SDL=2
-        -sSTACK_SIZE=16777216
-        -sEXPORTED_FUNCTIONS=_main,_upload_rom,_set_button_state,_set_channel_muted,_is_channel_muted,_get_frame_count,_malloc,_free
-        -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,writeArrayToMemory
-    )
-else()
-    target_compile_options(GBC PUBLIC -O3)
-    # Increase stack size to 16MB (default is usually 8MB on macOS)
-    if(APPLE)
-        # macOS uses -Wl,-stack_size,<size> where size is in bytes (hex)
-        target_link_options(GBC PUBLIC -Wl,-stack_size,0x1000000)
-    elseif(UNIX)
-        target_link_options(GBC PUBLIC -Wl,-z,stack-size=16777216)
-    elseif(WIN32)
-        target_link_options(GBC PUBLIC /STACK:16777216)
-    endif()
+if(WIN32)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:8000000")
 endif()
