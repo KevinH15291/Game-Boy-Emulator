@@ -321,12 +321,19 @@ void PPU::draw_pixel() {
     winbgpix = (cached_BGP >> (winbgpal * 2)) & 0x3;
 
     if (objenable) {
-        if (((((objpal & 3) == 0) || (objpal & 0x80)) && (winbgpal != 0)) ||
-            (objpal == (1 << 5))) {
+        bool has_sprite = (objpal != (1 << 5));
+        bool sprite_transparent = ((objpal & 0x3) == 0);
+        bool sprite_priority = ((objpal & 0x80) != 0);
+        bool bg_color_zero = (winbgpix == 0);
+
+        if (!has_sprite || sprite_transparent) {
+            pixel = winbgpix;
+        } else if (!bgenable) {
+            pixel = objpix;
+        } else if (sprite_priority && !bg_color_zero) {
             pixel = winbgpix;
         } else {
             pixel = objpix;
-            if (objpix == (1 << 5)) pixel = 0;
         }
     } else {
         pixel = winbgpix;

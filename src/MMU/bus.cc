@@ -634,7 +634,6 @@ void address_bus::writeMBC1(half address, byte value) {
     if (address >= 0x6000 && address <= 0x7FFF) {
         bank_mode = (value & 0x01) ? BankMode::RAM : BankMode::ROM;
         if (bank_mode == BankMode::ROM) {
-            eram_bank = ExternalRamBank::Bank0;
             rom_bank = (rom_bank & 0x1F) |
                        ((static_cast<uint8_t>(eram_bank) & 0x03) << 5);
         }
