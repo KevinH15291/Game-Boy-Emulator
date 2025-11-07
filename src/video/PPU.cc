@@ -208,8 +208,6 @@ void PPU::execute_cycle() {
 
                     if (objnum == 10) break;
                 }
-                std::sort(objbuffer, objbuffer + objnum,
-                          [](obj a, obj b) { return a.objx < b.objx; });
                 reg_STAT = (reg_STAT & 0xF8) | 2 | (lyc_match << 2);
                 if (reg_STAT & (1 << 5))
                     bus->write(addr(IORegister::IF),
@@ -324,7 +322,7 @@ void PPU::draw_pixel() {
         bool has_sprite = (objpal != (1 << 5));
         bool sprite_transparent = ((objpal & 0x3) == 0);
         bool sprite_priority = ((objpal & 0x80) != 0);
-        bool bg_color_zero = (winbgpix == 0);
+        bool bg_color_zero = (winbgpal == 0);
 
         if (!has_sprite || sprite_transparent) {
             pixel = winbgpix;
@@ -382,43 +380,42 @@ inline byte PPU::objFIFO() {
 
     uint8_t tilex = 0;
 
-    for (int i = (int)objnum - 1; i >= 0; --i) {
+    for (int i = 0; i < (int)objnum; ++i) {
         obj cand_tile = objbuffer[i];
 
-        if (cand_tile.objx - 2 <= renderX && cand_tile.objx + 6 > renderX)
-            tilei = i;
+        if (cand_tile.objx - 2 <= renderX && cand_tile.objx + 6 > renderX) {
+            byte objy = cand_tile.objy, objx = cand_tile.objx - 2,
+                 flags = cand_tile.flags, index = cand_tile.index;
+
+            if (objsize == 16) {
+                index = (index & 0xFE);
+            }
+
+            byte palette = flags & (1 << 4), Xflip = flags & (1 << 5),
+                 Yflip = flags & (1 << 6), prio = flags & (1 << 7);
+
+            half tile_address = addr(MemoryRegion::VIDEO_RAM) + index * 16 +
+                                (Yflip ? (objsize - 1 - (lines - objy)) * 2
+                                       : (lines - objy) * 2);
+
+            byte tilelow = bus->read(tile_address),
+                 tilehigh = bus->read(tile_address + 1);
+
+            byte object_pixel =
+                (((1 << (Xflip ? (renderX - objx) : 7 - (renderX - objx))) &
+                  tilelow) != 0) |
+                ((((1 << (Xflip ? (renderX - objx) : 7 - (renderX - objx))) &
+                   tilehigh) != 0)
+                 << 1);
+
+            if (object_pixel != 0) {
+                byte object_pixel_with_flags = object_pixel | prio | palette;
+                return object_pixel_with_flags;
+            }
+        }
     }
 
-    if (tilei == 255) return (1 << 5);
-
-    obj tile = objbuffer[tilei];
-
-    byte objy = tile.objy, objx = tile.objx - 2, flags = tile.flags,
-         index = tile.index;
-
-    if (objsize == 16) {
-        index = (index & 0xFE);
-    }
-
-    byte palette = flags & (1 << 4), Xflip = flags & (1 << 5),
-         Yflip = flags & (1 << 6), prio = flags & (1 << 7);
-
-    half tile_address =
-        addr(MemoryRegion::VIDEO_RAM) + index * 16 +
-        (Yflip ? (objsize - 1 - (lines - objy)) * 2 : (lines - objy) * 2);
-
-    byte tilelow = bus->read(tile_address),
-         tilehigh = bus->read(tile_address + 1);
-
-    byte object_pixel =
-        (((1 << (Xflip ? (renderX - objx) : 7 - (renderX - objx))) & tilelow) !=
-         0) |
-        ((((1 << (Xflip ? (renderX - objx) : 7 - (renderX - objx))) &
-           tilehigh) != 0)
-         << 1);
-
-    byte object_pixel_with_flags = object_pixel | prio | palette;
-    return object_pixel_with_flags;
+    return (1 << 5);
 }
 
 inline byte PPU::bgFIFO(half tilex, half tiley) {
