@@ -36,12 +36,24 @@ jobs:
         run: |
           cmake --build build_wasm --config Release
 
+      - name: List build output files
+        run: |
+          ls -la build_wasm/ || true
+          find build_wasm -name "*.html" -o -name "*.js" -o -name "*.wasm" || true
+
       - name: Copy files to docs
         run: |
           mkdir -p docs
-          cp build_wasm/GBC.html docs/index.html
-          cp build_wasm/GBC.js docs/
-          cp build_wasm/GBC.wasm docs/
+          if [ -f build_wasm/GBC.html ]; then
+            cp build_wasm/GBC.html docs/index.html
+          elif [ -f build_wasm/index.html ]; then
+            cp build_wasm/index.html docs/index.html
+          else
+            echo "Error: No HTML file found in build_wasm/"
+            exit 1
+          fi
+          cp build_wasm/GBC.js docs/ || cp build_wasm/*.js docs/ || (echo "Error: No JS file found" && exit 1)
+          cp build_wasm/GBC.wasm docs/ || cp build_wasm/*.wasm docs/ || (echo "Error: No WASM file found" && exit 1)
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
