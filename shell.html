@@ -12,6 +12,7 @@
         display: flex;
         flex-direction: column;
         align-items: center;
+        position: relative;
       }
       #controls,
       #channelToggles {
@@ -52,6 +53,55 @@
       #importSaveBtn:active {
         background: #222;
       }
+      #volumeControl {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      #volumeSlider {
+        width: 150px;
+        height: 6px;
+        background: #333;
+        border-radius: 3px;
+        outline: none;
+        -webkit-appearance: none;
+      }
+      #volumeSlider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        background: #eee;
+        border-radius: 50%;
+        cursor: pointer;
+      }
+      #volumeSlider::-moz-range-thumb {
+        width: 16px;
+        height: 16px;
+        background: #eee;
+        border-radius: 50%;
+        cursor: pointer;
+        border: none;
+      }
+      #volumeLabel {
+        font-size: 0.875rem;
+        min-width: 40px;
+        text-align: right;
+      }
+      .keybinding {
+        font-size: 0.75rem;
+        color: #888;
+        margin-left: 0.5rem;
+        font-family: monospace;
+      }
+      button {
+        position: relative;
+      }
+      #romInputLabel {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
       #channelToggles label {
         display: flex;
         align-items: center;
@@ -78,23 +128,102 @@
         font-family: monospace;
         font-size: 0.875rem;
       }
+      #keybindings {
+        position: absolute;
+        bottom: 0.5rem;
+        left: 0.5rem;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 0.5rem;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.75rem;
+        line-height: 1.4;
+        max-width: 200px;
+      }
+      #keybindings h3 {
+        margin: 0 0 0.5rem 0;
+        font-size: 0.875rem;
+        color: #fff;
+      }
+      #keybindings div {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        margin: 0.25rem 0;
+      }
+      #keybindings .key {
+        color: #aaa;
+        font-weight: bold;
+      }
+      #keybindings .action {
+        color: #eee;
+      }
     </style>
   </head>
   <body>
     <div id="controls">
-      <input type="file" id="romInput" accept=".gb,.gbc" />
-      <input type="file" id="saveInput" accept=".bin,.sav" style="display: none" />
-      <button id="importSaveBtn">Import Save</button>
-      <button id="exportSaveBtn">Export Save</button>
+      <div id="romInputLabel">
+        <input type="file" id="romInput" accept=".gb,.gbc" />
+        <span class="keybinding">Ctrl+O</span>
+      </div>
+      <input
+        type="file"
+        id="saveInput"
+        accept=".bin,.sav"
+        style="display: none"
+      />
+      <button id="importSaveBtn">
+        Import Save<span class="keybinding">Ctrl+I</span>
+      </button>
+      <button id="exportSaveBtn">
+        Export Save<span class="keybinding">Ctrl+E</span>
+      </button>
+      <div id="volumeControl">
+        <label for="volumeSlider" style="font-size: 0.875rem">Volume:</label>
+        <input type="range" id="volumeSlider" min="0" max="100" value="100" />
+        <span id="volumeLabel">100%</span>
+        <span class="keybinding">+/-</span>
+      </div>
       <span id="status">Initializing…</span>
     </div>
     <div id="channelToggles">
-      <label><input type="checkbox" data-channel="0" checked /> Ch1</label>
-      <label><input type="checkbox" data-channel="1" checked /> Ch2</label>
-      <label><input type="checkbox" data-channel="2" checked /> Ch3</label>
-      <label><input type="checkbox" data-channel="3" checked /> Ch4</label>
+      <label
+        ><input type="checkbox" data-channel="0" checked /> Ch1<span
+          class="keybinding"
+          >1</span
+        ></label
+      >
+      <label
+        ><input type="checkbox" data-channel="1" checked /> Ch2<span
+          class="keybinding"
+          >2</span
+        ></label
+      >
+      <label
+        ><input type="checkbox" data-channel="2" checked /> Ch3<span
+          class="keybinding"
+          >3</span
+        ></label
+      >
+      <label
+        ><input type="checkbox" data-channel="3" checked /> Ch4<span
+          class="keybinding"
+          >4</span
+        ></label
+      >
     </div>
     <div id="fpsCounter">FPS: --</div>
+    <div id="keybindings">
+      <h3>Controls</h3>
+      <div><span class="action">A</span><span class="key">X</span></div>
+      <div><span class="action">B</span><span class="key">Z</span></div>
+      <div><span class="action">Select</span><span class="key">/</span></div>
+      <div><span class="action">Start</span><span class="key">Enter</span></div>
+      <div><span class="action">Right</span><span class="key">→</span></div>
+      <div><span class="action">Left</span><span class="key">←</span></div>
+      <div><span class="action">Up</span><span class="key">↑</span></div>
+      <div><span class="action">Down</span><span class="key">↓</span></div>
+    </div>
     <canvas id="canvas"></canvas>
     <script>
       const statusEl = document.getElementById("status");
@@ -119,6 +248,15 @@
         }
         lastFpsUpdate = performance.now();
         updateFPS();
+        if (Module._get_master_volume) {
+          const volume = Module._get_master_volume();
+          const volumeSlider = document.getElementById("volumeSlider");
+          const volumeLabel = document.getElementById("volumeLabel");
+          if (volumeSlider && volumeLabel) {
+            volumeSlider.value = Math.round(volume * 100);
+            volumeLabel.textContent = Math.round(volume * 100) + "%";
+          }
+        }
       };
 
       function updateFPS() {
@@ -164,6 +302,47 @@
 
       window.addEventListener("keydown", (e) => updateKey(e, true));
       window.addEventListener("keyup", (e) => updateKey(e, false));
+
+      window.addEventListener("keydown", (e) => {
+        if (e.ctrlKey || e.metaKey) {
+          if (e.key === "o" || e.key === "O") {
+            e.preventDefault();
+            document.getElementById("romInput").click();
+          } else if (e.key === "i" || e.key === "I") {
+            e.preventDefault();
+            document.getElementById("saveInput").click();
+          } else if (e.key === "e" || e.key === "E") {
+            e.preventDefault();
+            document.getElementById("exportSaveBtn").click();
+          }
+        } else if (e.key === "+" || e.key === "=") {
+          e.preventDefault();
+          const volumeSlider = document.getElementById("volumeSlider");
+          if (volumeSlider) {
+            const current = parseInt(volumeSlider.value);
+            volumeSlider.value = Math.min(100, current + 5);
+            volumeSlider.dispatchEvent(new Event("input"));
+          }
+        } else if (e.key === "-" || e.key === "_") {
+          e.preventDefault();
+          const volumeSlider = document.getElementById("volumeSlider");
+          if (volumeSlider) {
+            const current = parseInt(volumeSlider.value);
+            volumeSlider.value = Math.max(0, current - 5);
+            volumeSlider.dispatchEvent(new Event("input"));
+          }
+        } else if (e.key >= "1" && e.key <= "4") {
+          e.preventDefault();
+          const channel = parseInt(e.key) - 1;
+          const checkbox = document.querySelector(
+            `#channelToggles input[data-channel="${channel}"]`
+          );
+          if (checkbox) {
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event("change"));
+          }
+        }
+      });
 
       document.getElementById("romInput").addEventListener("change", (e) => {
         const file = e.target.files[0];
@@ -328,6 +507,18 @@
         reader.readAsArrayBuffer(file);
         e.target.value = "";
       });
+
+      const volumeSlider = document.getElementById("volumeSlider");
+      const volumeLabel = document.getElementById("volumeLabel");
+      if (volumeSlider && volumeLabel) {
+        volumeSlider.addEventListener("input", (e) => {
+          const volume = parseFloat(e.target.value) / 100.0;
+          volumeLabel.textContent = Math.round(volume * 100) + "%";
+          if (runtimeReady && Module._set_master_volume) {
+            Module._set_master_volume(volume);
+          }
+        });
+      }
     </script>
     <script async type="text/javascript" src="GBC.js"></script>
   </body>

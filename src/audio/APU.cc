@@ -649,8 +649,14 @@ void APU::mix_and_output() {
     leftSample = std::max(-1.0f, std::min(1.0f, leftSample));
     rightSample = std::max(-1.0f, std::min(1.0f, rightSample));
 
-    queue_audio(leftSample, rightSample);
+    queue_audio(leftSample * masterVolume, rightSample * masterVolume);
 }
+
+void APU::set_master_volume(float volume) {
+    masterVolume = std::max(0.0f, std::min(1.0f, volume));
+}
+
+float APU::get_master_volume() const { return masterVolume; }
 
 void APU::queue_audio(float left, float right) {
 #ifdef __EMSCRIPTEN__

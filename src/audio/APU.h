@@ -31,6 +31,9 @@ class APU {
     void set_channel_mute(size_t channel, bool muted);
     bool is_channel_muted(size_t channel) const;
 
+    void set_master_volume(float volume);
+    float get_master_volume() const;
+
     void enable_audio_export(bool enable);
     void close_audio_export();
 
@@ -136,6 +139,8 @@ class APU {
     float rightCapacitor = 0.0f;
 
     std::array<bool, 4> channelMuted{};
+
+    float masterVolume = 1.0f;
 
     bool audioExportEnabled = false;
     std::ofstream channelFiles[4];

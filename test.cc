@@ -49,6 +49,16 @@ int is_channel_muted(int channel) {
     return g_gbc->apu.is_channel_muted(static_cast<size_t>(channel)) ? 1 : 0;
 }
 
+void set_master_volume(float volume) {
+    if (!g_gbc) return;
+    g_gbc->apu.set_master_volume(volume);
+}
+
+float get_master_volume() {
+    if (!g_gbc) return 1.0f;
+    return g_gbc->apu.get_master_volume();
+}
+
 int get_frame_count() {
     if (!g_gbc) return 0;
     return g_gbc->frame;
