@@ -171,7 +171,7 @@ class address_bus {
     MemoryBankController mbc = MemoryBankController::None;
     VramBank vram_bank = VramBank::Bank0;
     WramBank wram_bank = WramBank::Bank1;
-    uint8_t rom_bank = 1;
+    uint16_t rom_bank = 1;
     ExternalRamBank eram_bank = ExternalRamBank::Bank0;
     BankMode bank_mode = BankMode::ROM;
 
@@ -187,6 +187,7 @@ class address_bus {
     bool debug = false;
 
     class APU *apu = nullptr;
+    class PPU *ppu = nullptr;
 
     friend class SM83;
     friend class PPU;

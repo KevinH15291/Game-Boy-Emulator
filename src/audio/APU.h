@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstdint>
+#include <fstream>
 
 namespace GBC {
 
@@ -17,7 +18,7 @@ class address_bus;
 
 constexpr uint32_t CPU_FREQUENCY = 4194304;
 constexpr uint32_t SAMPLE_RATE = 44100;
-constexpr size_t AUDIO_BUFFER_SAMPLES = 2048;
+constexpr size_t AUDIO_BUFFER_SAMPLES = 256;
 
 class APU {
    public:
@@ -29,6 +30,9 @@ class APU {
 
     void set_channel_mute(size_t channel, bool muted);
     bool is_channel_muted(size_t channel) const;
+
+    void enable_audio_export(bool enable);
+    void close_audio_export();
 
    private:
     struct SquareChannel {
@@ -79,7 +83,7 @@ class APU {
         bool envelopeIncrease = false;
 
         uint32_t timer = 0;
-        uint16_t lfsr = 0xFFFF;
+        uint16_t lfsr = 0;
     };
 
     void clock_frame_sequencer();
@@ -97,14 +101,14 @@ class APU {
     int8_t sample_noise() const;
 
     void mix_and_output();
-    void queue_audio(int16_t left, int16_t right);
-    void flush_audio();
+    void queue_audio(float left, float right);
 
     void power_on();
     void power_off();
     void update_status_bits();
 
    public:
+    void flush_audio();
     void trigger_channel(uint16_t address);
     void update_length_enable(uint16_t address);
     bool masterEnabled = false;
@@ -119,23 +123,53 @@ class APU {
     uint32_t frameSequencerCounter = 0;
     uint8_t frameSequencerStep = 0;
 
-    // DIV-APU counter for length timer (256 Hz)
-    uint8_t prevDIV = 0;
-
     // Square channel timing counter (1048576 Hz = every 4 CPU cycles)
     uint8_t squareClockCounter = 0;
     // Wave channel timing counter (2097152 Hz = every 2 CPU cycles)
     uint8_t waveClockCounter = 0;
 
     uint64_t sampleAccumulator = 0;
-    std::array<int16_t, AUDIO_BUFFER_SAMPLES * 2> sampleBuffer{};
+    std::array<float, AUDIO_BUFFER_SAMPLES * 2> sampleBuffer{};
     size_t bufferedSamples = 0;
+
+    float leftCapacitor = 0.0f;
+    float rightCapacitor = 0.0f;
 
     std::array<bool, 4> channelMuted{};
 
+    bool audioExportEnabled = false;
+    std::ofstream channelFiles[4];
+    uint32_t exportedSampleCount = 0;
+
+   private:
+    uint8_t nr10 = 0;
+    uint8_t nr11 = 0;
+    uint8_t nr12 = 0;
+    uint8_t nr13 = 0;
+    uint8_t nr14 = 0;
+    uint8_t nr21 = 0;
+    uint8_t nr22 = 0;
+    uint8_t nr23 = 0;
+    uint8_t nr24 = 0;
+    uint8_t nr30 = 0;
+    uint8_t nr31 = 0;
+    uint8_t nr32 = 0;
+    uint8_t nr33 = 0;
+    uint8_t nr34 = 0;
+    uint8_t nr41 = 0;
+    uint8_t nr42 = 0;
+    uint8_t nr43 = 0;
+    uint8_t nr44 = 0;
+    uint8_t nr50 = 0;
+    uint8_t nr51 = 0;
+    uint8_t nr52 = 0;
+    std::array<uint8_t, 16> waveRAM{};
+
    public:
     uint8_t read_register(uint16_t address) const;
+    void write_register(uint16_t address, uint8_t value);
     uint8_t read_wave_byte(uint16_t address) const;
+    void write_wave_byte(uint16_t address, uint8_t value);
     bool is_wave_active() const;
     uint8_t get_nr52_status() const;
 

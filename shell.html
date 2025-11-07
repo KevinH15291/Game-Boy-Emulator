@@ -31,12 +31,22 @@
         border-radius: 4px;
       }
       #canvas {
-        width: 320px;
-        height: 288px;
+        width: 640px;
+        height: 576px;
         image-rendering: pixelated;
         border: 1px solid #333;
         background: #000;
         margin: 1rem 0;
+      }
+      #fpsCounter {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        background: rgba(0, 0, 0, 0.7);
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.875rem;
       }
     </style>
   </head>
@@ -51,23 +61,51 @@
       <label><input type="checkbox" data-channel="2" checked /> Ch3</label>
       <label><input type="checkbox" data-channel="3" checked /> Ch4</label>
     </div>
+    <div id="fpsCounter">FPS: --</div>
     <canvas id="canvas"></canvas>
     <script>
       const statusEl = document.getElementById("status");
+      const fpsEl = document.getElementById("fpsCounter");
       let runtimeReady = false;
+      let lastFrameCount = 0;
+      let lastFpsUpdate = 0;
       var Module = typeof Module !== "undefined" ? Module : {};
       Module.canvas = document.getElementById("canvas");
       Module.onRuntimeInitialized = function () {
         runtimeReady = true;
         statusEl.textContent = "Ready";
         console.log("Runtime initialized");
+        console.log("Module.HEAPU8 available:", !!Module.HEAPU8);
+        console.log("Module._malloc available:", !!Module._malloc);
+        console.log("Module._upload_rom available:", !!Module._upload_rom);
         if (Module._is_channel_muted) {
           document.querySelectorAll("#channelToggles input").forEach((el) => {
             const channel = parseInt(el.dataset.channel, 10);
             el.checked = Module._is_channel_muted(channel) === 0 ? true : false;
           });
         }
+        lastFpsUpdate = performance.now();
+        updateFPS();
       };
+
+      function updateFPS() {
+        if (!runtimeReady || !Module._get_frame_count) {
+          requestAnimationFrame(updateFPS);
+          return;
+        }
+        const now = performance.now();
+        const currentFrameCount = Module._get_frame_count();
+        const elapsed = now - lastFpsUpdate;
+
+        if (elapsed >= 1000) {
+          const fps = ((currentFrameCount - lastFrameCount) * 1000) / elapsed;
+          fpsEl.textContent = `FPS: ${fps.toFixed(1)}`;
+          lastFrameCount = currentFrameCount;
+          lastFpsUpdate = now;
+        }
+
+        requestAnimationFrame(updateFPS);
+      }
 
       const KEY_MAP = {
         KeyX: { button: 0, pressed: false },
@@ -111,7 +149,22 @@
               throw new Error("Allocator not ready");
             }
             ptr = Module._malloc(data.length);
-            Module.HEAPU8.set(data, ptr);
+            if (!ptr) {
+              throw new Error("Failed to allocate memory");
+            }
+            if (Module.writeArrayToMemory) {
+              Module.writeArrayToMemory(data, ptr);
+            } else if (Module.HEAPU8) {
+              Module.HEAPU8.set(data, ptr);
+            } else if (Module.HEAP8) {
+              for (let i = 0; i < data.length; i++) {
+                Module.HEAP8[ptr + i] = data[i];
+              }
+            } else {
+              for (let i = 0; i < data.length; i++) {
+                Module.setValue(ptr + i, data[i], "i8");
+              }
+            }
             const result = Module.ccall(
               "upload_rom",
               "number",
@@ -123,7 +176,7 @@
               result === 1 ? `Loaded ${file.name}` : "Failed to load ROM";
           } catch (err) {
             console.error("ROM upload threw", err);
-            statusEl.textContent = "Error loading ROM";
+            statusEl.textContent = "Error loading ROM: " + err.message;
           } finally {
             if (ptr && Module._free) {
               Module._free(ptr);

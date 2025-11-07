@@ -10,6 +10,8 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <fstream>
+#include <iostream>
 
 #include "bus.h"
 
@@ -26,6 +28,21 @@ constexpr std::array<std::array<int8_t, 8>, 4> DUTY_TABLE{{
 
 constexpr std::array<uint16_t, 8> DIVISOR_LOOKUP{8,  16, 32, 48,
                                                  64, 80, 96, 112};
+
+static inline uint16_t noise_reload(uint8_t s, uint8_t r) {
+    if (s >= 14) return 0;
+    uint16_t base = (r == 0) ? 4 : (8 * r);
+    return static_cast<uint16_t>(base) << s;
+}
+
+static inline bool sweep_would_overflow(uint16_t frequency, bool negate,
+                                        uint8_t shift) {
+    if (shift == 0) return false;
+    uint16_t delta = frequency >> shift;
+    uint32_t candidate = negate ? static_cast<uint32_t>(frequency) - delta
+                                : static_cast<uint32_t>(frequency) + delta;
+    return candidate > 2047;
+}
 
 inline uint16_t compute_square_period(uint16_t frequency) {
     return (2048 - (frequency & 0x7FF)) * 4;
@@ -56,22 +73,47 @@ inline int16_t clamp16(int value) {
     return static_cast<int16_t>(value);
 }
 
+void write_wav_header(std::ofstream &file, uint32_t sampleCount) {
+    file.write("RIFF", 4);
+    uint32_t fileSize = 36 + sampleCount * 2;
+    file.write(reinterpret_cast<const char *>(&fileSize), 4);
+    file.write("WAVE", 4);
+    file.write("fmt ", 4);
+    uint32_t fmtSize = 16;
+    file.write(reinterpret_cast<const char *>(&fmtSize), 4);
+    uint16_t audioFormat = 1;
+    file.write(reinterpret_cast<const char *>(&audioFormat), 2);
+    uint16_t numChannels = 1;
+    file.write(reinterpret_cast<const char *>(&numChannels), 2);
+    uint32_t sampleRate = 44100;
+    file.write(reinterpret_cast<const char *>(&sampleRate), 4);
+    uint32_t byteRate = 44100 * 2;
+    file.write(reinterpret_cast<const char *>(&byteRate), 4);
+    uint16_t blockAlign = 2;
+    file.write(reinterpret_cast<const char *>(&blockAlign), 2);
+    uint16_t bitsPerSample = 16;
+    file.write(reinterpret_cast<const char *>(&bitsPerSample), 2);
+    file.write("data", 4);
+    uint32_t dataSize = sampleCount * 2;
+    file.write(reinterpret_cast<const char *>(&dataSize), 4);
+}
+
 }  // namespace
 
 APU::APU(address_bus &memory) : memory(memory) {
-#ifdef __EMSCRIPTEN__
-    SDL_Init(SDL_INIT_AUDIO);
-    std::memset(&audioSpec, 0, sizeof(audioSpec));
-    audioSpec.format = AUDIO_S16SYS;
-    audioSpec.freq = SAMPLE_RATE;
-    audioSpec.channels = 2;
-    audioSpec.samples = AUDIO_BUFFER_SAMPLES;
-    audioDevice = SDL_OpenAudioDevice(nullptr, 0, &audioSpec, nullptr, 0);
-    SDL_PauseAudioDevice(audioDevice, 0);
-#else
     SDL_InitSubSystem(SDL_INIT_AUDIO);
     std::memset(&audioSpec, 0, sizeof(audioSpec));
-    audioSpec.format = SDL_AUDIO_S16;
+#ifdef __EMSCRIPTEN__
+    audioSpec.format = AUDIO_F32SYS;
+    audioSpec.channels = 2;
+    audioSpec.freq = SAMPLE_RATE;
+    audioSpec.samples = AUDIO_BUFFER_SAMPLES;
+    audioDevice = SDL_OpenAudioDevice(nullptr, 0, &audioSpec, nullptr, 0);
+    if (audioDevice != 0) {
+        SDL_PauseAudioDevice(audioDevice, 0);
+    }
+#else
+    audioSpec.format = SDL_AUDIO_F32;
     audioSpec.channels = 2;
     audioSpec.freq = SAMPLE_RATE;
     audioStream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
@@ -86,6 +128,7 @@ APU::APU(address_bus &memory) : memory(memory) {
 
 APU::~APU() {
     flush_audio();
+    close_audio_export();
 #ifdef __EMSCRIPTEN__
     if (audioDevice != 0) {
         SDL_CloseAudioDevice(audioDevice);
@@ -115,13 +158,6 @@ void APU::reset() {
 void APU::trigger_channel(uint16_t address) {
     switch (address) {
         case addr(AudioRegister::NR14): {
-            // Read current register values from bus
-            uint8_t nr11 = memory.read_privileged(addr(AudioRegister::NR11));
-            uint8_t nr12 = memory.read_privileged(addr(AudioRegister::NR12));
-            uint8_t nr13 = memory.read_privileged(addr(AudioRegister::NR13));
-            uint8_t nr14 = memory.read_privileged(addr(AudioRegister::NR14));
-            uint8_t nr10 = memory.read_privileged(addr(AudioRegister::NR10));
-
             ch1.duty = nr11 >> 6;
             ch1.lengthCounter = 64 - (nr11 & 0x3F);
             ch1.dacEnabled = (nr12 & 0xF8) != 0;
@@ -143,17 +179,15 @@ void APU::trigger_channel(uint16_t address) {
             ch1.shadowFrequency = nr13 | ((nr14 & 0x07) << 8);
             ch1.sweepTimer = ch1.sweepPeriod == 0 ? 8 : ch1.sweepPeriod;
             if (ch1.sweepShift != 0) {
-                clock_sweep_unit();
+                if (sweep_would_overflow(ch1.shadowFrequency, ch1.sweepNegate,
+                                         ch1.sweepShift)) {
+                    ch1.enabled = false;
+                    update_status_bits();
+                }
             }
             break;
         }
         case addr(AudioRegister::NR24): {
-            // Read current register values from bus
-            uint8_t nr21 = memory.read_privileged(addr(AudioRegister::NR21));
-            uint8_t nr22 = memory.read_privileged(addr(AudioRegister::NR22));
-            uint8_t nr23 = memory.read_privileged(addr(AudioRegister::NR23));
-            uint8_t nr24 = memory.read_privileged(addr(AudioRegister::NR24));
-
             ch2.duty = nr21 >> 6;
             ch2.lengthCounter = 64 - (nr21 & 0x3F);
             ch2.dacEnabled = (nr22 & 0xF8) != 0;
@@ -171,31 +205,18 @@ void APU::trigger_channel(uint16_t address) {
             break;
         }
         case addr(AudioRegister::NR34): {
-            // Read current register values from bus
-            uint8_t nr31 = memory.read_privileged(addr(AudioRegister::NR31));
-            uint8_t nr33 = memory.read_privileged(addr(AudioRegister::NR33));
-            uint8_t nr34 = memory.read_privileged(addr(AudioRegister::NR34));
-            uint8_t nr30 = memory.read_privileged(addr(AudioRegister::NR30));
-
             ch3.lengthCounter = 256 - nr31;
             ch3.dacEnabled = (nr30 & 0x80) != 0;
             ch3.lengthEnabled = (nr34 & 0x40) != 0;
             if (ch3.lengthCounter == 0) ch3.lengthCounter = 256;
             ch3.timer = compute_wave_period(nr33 | ((nr34 & 0x07) << 8));
             ch3.position = 0;
-            // Read initial sample from wave RAM
-            uint8_t waveByte = memory.read_privileged(0xFF30);
+            uint8_t waveByte = waveRAM[0];
             ch3.currentSample = waveByte >> 4;
             ch3.enabled = ch3.dacEnabled;
             break;
         }
         case addr(AudioRegister::NR44): {
-            // Read current register values from bus
-            uint8_t nr41 = memory.read_privileged(addr(AudioRegister::NR41));
-            uint8_t nr42 = memory.read_privileged(addr(AudioRegister::NR42));
-            uint8_t nr43 = memory.read_privileged(addr(AudioRegister::NR43));
-            uint8_t nr44 = memory.read_privileged(addr(AudioRegister::NR44));
-
             ch4.lengthCounter = 64 - (nr41 & 0x3F);
             ch4.dacEnabled = (nr42 & 0xF8) != 0;
             ch4.envelopeInitial = (nr42 >> 4) & 0x0F;
@@ -210,15 +231,10 @@ void APU::trigger_channel(uint16_t address) {
             if (ch4.lengthCounter == 0) ch4.lengthCounter = 64;
             ch4.enabled = ch4.dacEnabled;
             ch4.envelopeTimer = ch4.envelopePeriod;
-            ch4.lfsr = 0xFFFF;
+            ch4.lfsr = 0;
             {
-                uint8_t divisor =
-                    divisorCode == 0 ? 8 : DIVISOR_LOOKUP[divisorCode];
-                ch4.timer = static_cast<uint32_t>(divisor) << clockShift;
-                if (divisorCode == 0 && clockShift == 0) {
-                    ch4.timer =
-                        4;  // Special case: divisor 0.5 × 2^0 = 4 cycles
-                }
+                ch4.timer = noise_reload(clockShift, divisorCode);
+                if (ch4.timer == 0) ch4.timer = 1;
             }
             break;
         }
@@ -231,22 +247,18 @@ void APU::trigger_channel(uint16_t address) {
 void APU::update_length_enable(uint16_t address) {
     switch (address) {
         case addr(AudioRegister::NR14): {
-            uint8_t nr14 = memory.read_privileged(addr(AudioRegister::NR14));
             ch1.lengthEnabled = (nr14 & 0x40) != 0;
             break;
         }
         case addr(AudioRegister::NR24): {
-            uint8_t nr24 = memory.read_privileged(addr(AudioRegister::NR24));
             ch2.lengthEnabled = (nr24 & 0x40) != 0;
             break;
         }
         case addr(AudioRegister::NR34): {
-            uint8_t nr34 = memory.read_privileged(addr(AudioRegister::NR34));
             ch3.lengthEnabled = (nr34 & 0x40) != 0;
             break;
         }
         case addr(AudioRegister::NR44): {
-            uint8_t nr44 = memory.read_privileged(addr(AudioRegister::NR44));
             ch4.lengthEnabled = (nr44 & 0x40) != 0;
             break;
         }
@@ -256,9 +268,7 @@ void APU::update_length_enable(uint16_t address) {
 }
 
 void APU::execute_cycle() {
-    // Read master enable from bus
-    bool newMasterEnabled =
-        (memory.read_privileged(addr(AudioRegister::NR52)) & 0x80) != 0;
+    bool newMasterEnabled = (nr52 & 0x80) != 0;
 
     if (newMasterEnabled != masterEnabled) {
         masterEnabled = newMasterEnabled;
@@ -268,13 +278,6 @@ void APU::execute_cycle() {
     if (!masterEnabled) {
         return;
     }
-
-    // Check DIV register for length timer (256 Hz)
-    uint8_t currentDIV = memory.read_privileged(addr(IORegister::DIV));
-    if ((currentDIV & 0x10) != (prevDIV & 0x10)) {
-        clock_length_units();
-    }
-    prevDIV = currentDIV;
 
     frameSequencerCounter += 1;
     if (frameSequencerCounter >= CPU_FREQUENCY / 512) {
@@ -300,10 +303,17 @@ void APU::clock_frame_sequencer() {
     // Check DAC status every frame sequencer step
     check_dac_status();
 
+    // Length @ 256 Hz on steps 0, 2, 4, 6
+    if ((frameSequencerStep & 1) == 0) {
+        clock_length_units();
+    }
+
+    // Sweep @ 128 Hz on steps 2 and 6
     if (frameSequencerStep == 2 || frameSequencerStep == 6) {
         clock_sweep_unit();
     }
 
+    // Envelope @ 64 Hz on step 7
     if (frameSequencerStep == 7) {
         clock_envelopes();
     }
@@ -328,8 +338,6 @@ void APU::clock_length_units() {
 }
 
 void APU::clock_sweep_unit() {
-    // Read sweep settings from bus
-    uint8_t nr10 = memory.read_privileged(addr(AudioRegister::NR10));
     uint8_t sweepPeriod = (nr10 >> 4) & 0x07;
     uint8_t sweepShift = nr10 & 0x07;
     bool sweepEnabled = (sweepPeriod != 0 || sweepShift != 0);
@@ -370,37 +378,28 @@ void APU::clock_sweep_unit() {
 }
 
 void APU::check_dac_status() {
-    // Check if DACs are turned off and disable channels accordingly
-    // CH1
     if (ch1.enabled) {
-        uint8_t nr12 = memory.read_privileged(addr(AudioRegister::NR12));
         if ((nr12 & 0xF8) == 0) {
             ch1.enabled = false;
             update_status_bits();
         }
     }
 
-    // CH2
     if (ch2.enabled) {
-        uint8_t nr22 = memory.read_privileged(addr(AudioRegister::NR22));
         if ((nr22 & 0xF8) == 0) {
             ch2.enabled = false;
             update_status_bits();
         }
     }
 
-    // CH3
     if (ch3.enabled) {
-        uint8_t nr30 = memory.read_privileged(addr(AudioRegister::NR30));
         if ((nr30 & 0x80) == 0) {
             ch3.enabled = false;
             update_status_bits();
         }
     }
 
-    // CH4
     if (ch4.enabled) {
-        uint8_t nr42 = memory.read_privileged(addr(AudioRegister::NR42));
         if ((nr42 & 0xF8) == 0) {
             ch4.enabled = false;
             update_status_bits();
@@ -409,9 +408,7 @@ void APU::check_dac_status() {
 }
 
 void APU::clock_envelopes() {
-    // Update CH1 envelope
     if (ch1.enabled) {
-        uint8_t nr12 = memory.read_privileged(addr(AudioRegister::NR12));
         uint8_t envelopePeriod = nr12 & 0x07;
         bool envelopeIncrease = (nr12 & 0x08) != 0;
 
@@ -432,9 +429,7 @@ void APU::clock_envelopes() {
         }
     }
 
-    // Update CH2 envelope
     if (ch2.enabled) {
-        uint8_t nr22 = memory.read_privileged(addr(AudioRegister::NR22));
         uint8_t envelopePeriod = nr22 & 0x07;
         bool envelopeIncrease = (nr22 & 0x08) != 0;
 
@@ -455,9 +450,7 @@ void APU::clock_envelopes() {
         }
     }
 
-    // Update CH4 envelope
     if (ch4.enabled) {
-        uint8_t nr42 = memory.read_privileged(addr(AudioRegister::NR42));
         uint8_t envelopePeriod = nr42 & 0x07;
         bool envelopeIncrease = (nr42 & 0x08) != 0;
 
@@ -482,16 +475,11 @@ void APU::clock_envelopes() {
 void APU::tick_square(SquareChannel &channel) {
     if (!channel.enabled) return;
 
-    // Read frequency from bus
     uint16_t frequency = 0;
     if (&channel == &ch1) {
-        frequency =
-            memory.read_privileged(addr(AudioRegister::NR13)) |
-            ((memory.read_privileged(addr(AudioRegister::NR14)) & 0x07) << 8);
+        frequency = nr13 | ((nr14 & 0x07) << 8);
     } else {
-        frequency =
-            memory.read_privileged(addr(AudioRegister::NR23)) |
-            ((memory.read_privileged(addr(AudioRegister::NR24)) & 0x07) << 8);
+        frequency = nr23 | ((nr24 & 0x07) << 8);
     }
 
     if (channel.timer == 0) channel.timer = compute_square_period(frequency);
@@ -505,10 +493,7 @@ void APU::tick_square(SquareChannel &channel) {
 void APU::tick_wave() {
     if (!ch3.enabled) return;
 
-    // Read frequency from bus
-    uint16_t frequency =
-        memory.read_privileged(addr(AudioRegister::NR33)) |
-        ((memory.read_privileged(addr(AudioRegister::NR34)) & 0x07) << 8);
+    uint16_t frequency = nr33 | ((nr34 & 0x07) << 8);
 
     if (ch3.timer > 0) {
         --ch3.timer;
@@ -516,8 +501,7 @@ void APU::tick_wave() {
 
     if (ch3.timer == 0) {
         ch3.timer = compute_wave_period(frequency);
-        // Read wave RAM directly from bus
-        uint8_t byte = memory.read_privileged(0xFF30 + (ch3.position >> 1));
+        uint8_t byte = waveRAM[ch3.position >> 1];
         ch3.currentSample = (ch3.position & 1) ? (byte & 0x0F) : (byte >> 4);
         ch3.position = (ch3.position + 1) & 0x1F;
     }
@@ -526,55 +510,56 @@ void APU::tick_wave() {
 void APU::tick_noise() {
     if (!ch4.enabled) return;
 
-    // Read NR43 from bus
-    uint8_t nr43 = memory.read_privileged(addr(AudioRegister::NR43));
     uint8_t clockShift = (nr43 >> 4) & 0x0F;
     bool widthMode = (nr43 & 0x08) != 0;
     uint8_t divisorCode = nr43 & 0x07;
 
-    if (--ch4.timer == 0) {
+    if (clockShift >= 14) {
+        return;
+    }
+
+    if (ch4.timer == 0) {
         uint8_t bit0 = ch4.lfsr & 1;
         uint8_t bit1 = (ch4.lfsr >> 1) & 1;
-        uint8_t newBit = (~(bit0 ^ bit1)) & 1;  // XNOR per hardware
-        ch4.lfsr >>= 1;
-        ch4.lfsr |= static_cast<uint16_t>(newBit) << 14;
+        uint8_t newBit = (~(bit0 ^ bit1)) & 1;
+
+        ch4.lfsr &= ~(1 << 15);
+        ch4.lfsr |= static_cast<uint16_t>(newBit) << 15;
+
         if (widthMode) {
-            ch4.lfsr &= ~(1 << 6);
-            ch4.lfsr |= static_cast<uint16_t>(newBit) << 6;
+            ch4.lfsr &= ~(1 << 7);
+            ch4.lfsr |= static_cast<uint16_t>(newBit) << 7;
         }
 
-        uint8_t divisor = divisorCode == 0 ? 8 : DIVISOR_LOOKUP[divisorCode];
-        ch4.timer = static_cast<uint32_t>(divisor) << clockShift;
-        if (divisorCode == 0 && clockShift == 0) {
-            ch4.timer = 4;  // Special case: divisor 0.5 × 2^0 = 4 cycles
-        }
-        if (ch4.timer == 0) ch4.timer = 1;
+        ch4.lfsr >>= 1;
+
+        ch4.timer = noise_reload(clockShift, divisorCode);
+        if (ch4.timer == 0) return;
     }
+
+    --ch4.timer;
 }
 
 int8_t APU::sample_square(const SquareChannel &channel) const {
     if (!channel.enabled || !channel.dacEnabled) return 0;
 
-    // Read duty from bus
     uint8_t duty = 0;
     if (&channel == &ch1) {
-        duty = (memory.read_privileged(addr(AudioRegister::NR11)) >> 6) & 0x03;
+        duty = (nr11 >> 6) & 0x03;
     } else {
-        duty = (memory.read_privileged(addr(AudioRegister::NR21)) >> 6) & 0x03;
+        duty = (nr21 >> 6) & 0x03;
     }
 
     uint8_t output =
         DUTY_TABLE[duty][channel.dutyStep] ? channel.envelopeVolume : 0;
-    int centered = (output * 2) - channel.envelopeVolume;
-    return static_cast<int8_t>(centered << 4);
+    int centered = 15 - (static_cast<int>(output) * 2);
+    return static_cast<int8_t>(centered << 2);
 }
 
 int8_t APU::sample_wave() const {
     if (!ch3.enabled || !ch3.dacEnabled) return 0;
 
-    // Read volume code from bus
-    uint8_t volumeCode =
-        (memory.read_privileged(addr(AudioRegister::NR32)) >> 5) & 0x03;
+    uint8_t volumeCode = (nr32 >> 5) & 0x03;
 
     uint8_t sample = ch3.currentSample & 0x0F;
     switch (volumeCode) {
@@ -590,52 +575,84 @@ int8_t APU::sample_wave() const {
             break;
     }
 
-    int centered = static_cast<int>(sample) - 8;
-    return static_cast<int8_t>(centered << 4);
+    int centered = 15 - (static_cast<int>(sample) * 2);
+    return static_cast<int8_t>(centered << 2);
 }
 
 int8_t APU::sample_noise() const {
     if (!ch4.enabled || !ch4.dacEnabled) return 0;
     uint8_t output = (~ch4.lfsr) & 1;
     int value = output ? ch4.envelopeVolume : 0;
-    int centered = (value * 2) - ch4.envelopeVolume;
-    return static_cast<int8_t>(centered << 4);
+    int centered = 15 - (static_cast<int>(value) * 2);
+    return static_cast<int8_t>(centered << 2);
 }
 
 void APU::mix_and_output() {
-    int8_t s1 = channelMuted[0] ? 0 : sample_square(ch1);
-    int8_t s2 = channelMuted[1] ? 0 : sample_square(ch2);
-    int8_t s3 = channelMuted[2] ? 0 : sample_wave();
-    int8_t s4 = channelMuted[3] ? 0 : sample_noise();
+    int8_t raw_s1 = sample_square(ch1);
+    int8_t raw_s2 = sample_square(ch2);
+    int8_t raw_s3 = sample_wave();
+    int8_t raw_s4 = sample_noise();
+
+    if (audioExportEnabled) {
+        int16_t samples[4] = {static_cast<int16_t>(raw_s1 * 256),
+                              static_cast<int16_t>(raw_s2 * 256),
+                              static_cast<int16_t>(raw_s3 * 256),
+                              static_cast<int16_t>(raw_s4 * 256)};
+        for (int i = 0; i < 4; ++i) {
+            if (channelFiles[i].is_open()) {
+                channelFiles[i].write(
+                    reinterpret_cast<const char *>(&samples[i]), 2);
+            }
+        }
+        ++exportedSampleCount;
+    }
+
+    int8_t s1 = channelMuted[0] ? 0 : raw_s1;
+    int8_t s2 = channelMuted[1] ? 0 : raw_s2;
+    int8_t s3 = channelMuted[2] ? 0 : raw_s3;
+    int8_t s4 = channelMuted[3] ? 0 : raw_s4;
 
     auto mix_channel = [&](int channelMask) {
         int mix = 0;
-        if (channelMask & 0x01) mix += s1;
-        if (channelMask & 0x02) mix += s2;
-        if (channelMask & 0x04) mix += s3;
-        if (channelMask & 0x08) mix += s4;
+        if (channelMask & 0x01) mix += static_cast<int>(s1);
+        if (channelMask & 0x02) mix += static_cast<int>(s2);
+        if (channelMask & 0x04) mix += static_cast<int>(s3);
+        if (channelMask & 0x08) mix += static_cast<int>(s4);
         return mix;
     };
-
-    // Read panning and volume from bus
-    uint8_t nr51 = memory.read_privileged(addr(AudioRegister::NR51));
-    uint8_t nr50 = memory.read_privileged(addr(AudioRegister::NR50));
 
     int leftMix = mix_channel(nr51 & 0x0F);
     int rightMix = mix_channel((nr51 >> 4) & 0x0F);
 
-    int leftVolume = ((nr50 >> 4) & 0x07) + 1;
-    int rightVolume = (nr50 & 0x07) + 1;
+    float leftVolume = static_cast<float>(((nr50 >> 4) & 0x07) + 1) / 8.0f;
+    float rightVolume = static_cast<float>((nr50 & 0x07) + 1) / 8.0f;
 
-    // Convert to 16-bit range with proper scaling
-    // Game Boy DAC outputs 0-15 voltage levels, scale to ±32767
-    int16_t leftSample = clamp16((leftMix * leftVolume * 2048) / 8);
-    int16_t rightSample = clamp16((rightMix * rightVolume * 2048) / 8);
+    float leftIn = static_cast<float>(leftMix) * leftVolume / 240.0f;
+    float rightIn = static_cast<float>(rightMix) * rightVolume / 240.0f;
+
+    bool dacsEnabled =
+        ch1.dacEnabled || ch2.dacEnabled || ch3.dacEnabled || ch4.dacEnabled;
+
+    float leftSample, rightSample;
+    if (dacsEnabled) {
+        leftSample = leftIn - leftCapacitor;
+        leftCapacitor = leftIn - (leftSample * 0.998943f);
+        rightSample = rightIn - rightCapacitor;
+        rightCapacitor = rightIn - (rightSample * 0.998943f);
+    } else {
+        leftSample = 0.0f;
+        rightSample = 0.0f;
+        leftCapacitor = 0.0f;
+        rightCapacitor = 0.0f;
+    }
+
+    leftSample = std::max(-1.0f, std::min(1.0f, leftSample));
+    rightSample = std::max(-1.0f, std::min(1.0f, rightSample));
 
     queue_audio(leftSample, rightSample);
 }
 
-void APU::queue_audio(int16_t left, int16_t right) {
+void APU::queue_audio(float left, float right) {
 #ifdef __EMSCRIPTEN__
     if (audioDevice == 0) return;
 #else
@@ -647,11 +664,13 @@ void APU::queue_audio(int16_t left, int16_t right) {
 
     if (bufferedSamples >= AUDIO_BUFFER_SAMPLES) {
 #ifdef __EMSCRIPTEN__
-        SDL_QueueAudio(audioDevice, sampleBuffer.data(),
-                       bufferedSamples * sizeof(int16_t) * 2);
+        SDL_QueueAudio(
+            audioDevice, sampleBuffer.data(),
+            static_cast<Uint32>(bufferedSamples * sizeof(float) * 2));
 #else
-        SDL_PutAudioStreamData(audioStream, sampleBuffer.data(),
-                               bufferedSamples * sizeof(int16_t) * 2);
+        SDL_PutAudioStreamData(
+            audioStream, sampleBuffer.data(),
+            static_cast<int>(bufferedSamples * sizeof(float) * 2));
 #endif
         bufferedSamples = 0;
     }
@@ -661,13 +680,56 @@ void APU::flush_audio() {
 #ifdef __EMSCRIPTEN__
     if (audioDevice == 0 || bufferedSamples == 0) return;
     SDL_QueueAudio(audioDevice, sampleBuffer.data(),
-                   bufferedSamples * sizeof(int16_t) * 2);
+                   static_cast<Uint32>(bufferedSamples * sizeof(float) * 2));
 #else
     if (audioStream == nullptr || bufferedSamples == 0) return;
-    SDL_PutAudioStreamData(audioStream, sampleBuffer.data(),
-                           bufferedSamples * sizeof(int16_t) * 2);
+    SDL_PutAudioStreamData(
+        audioStream, sampleBuffer.data(),
+        static_cast<int>(bufferedSamples * sizeof(float) * 2));
 #endif
     bufferedSamples = 0;
+}
+
+void APU::enable_audio_export(bool enable) {
+    if (enable == audioExportEnabled) return;
+
+    if (enable) {
+        const char *filenames[4] = {"channel1_square.wav",
+                                    "channel2_square.wav", "channel3_wave.wav",
+                                    "channel4_noise.wav"};
+        for (int i = 0; i < 4; ++i) {
+            channelFiles[i].open(filenames[i], std::ios::binary);
+            if (channelFiles[i].is_open()) {
+                write_wav_header(channelFiles[i], 0);
+            } else {
+                std::cerr << "Failed to open " << filenames[i] << " for writing"
+                          << std::endl;
+            }
+        }
+        exportedSampleCount = 0;
+        audioExportEnabled = true;
+        std::cout
+            << "Audio export enabled. Writing to channel1_square.wav, "
+               "channel2_square.wav, channel3_wave.wav, channel4_noise.wav"
+            << std::endl;
+    } else {
+        close_audio_export();
+    }
+}
+
+void APU::close_audio_export() {
+    if (!audioExportEnabled) return;
+
+    for (int i = 0; i < 4; ++i) {
+        if (channelFiles[i].is_open()) {
+            channelFiles[i].seekp(0, std::ios::beg);
+            write_wav_header(channelFiles[i], exportedSampleCount);
+            channelFiles[i].close();
+        }
+    }
+    audioExportEnabled = false;
+    std::cout << "Audio export closed. Exported " << exportedSampleCount
+              << " samples per channel." << std::endl;
 }
 
 void APU::power_on() {
@@ -703,13 +765,142 @@ bool APU::is_channel_muted(size_t channel) const {
 }
 
 uint8_t APU::read_register(uint16_t address) const {
-    // Read directly from bus
-    return memory.read_privileged(address);
+    switch (address) {
+        case addr(AudioRegister::NR10):
+            return nr10;
+        case addr(AudioRegister::NR11):
+            return nr11;
+        case addr(AudioRegister::NR12):
+            return nr12;
+        case addr(AudioRegister::NR13):
+            return nr13;
+        case addr(AudioRegister::NR14):
+            return nr14;
+        case addr(AudioRegister::NR21):
+            return nr21;
+        case addr(AudioRegister::NR22):
+            return nr22;
+        case addr(AudioRegister::NR23):
+            return nr23;
+        case addr(AudioRegister::NR24):
+            return nr24;
+        case addr(AudioRegister::NR30):
+            return nr30;
+        case addr(AudioRegister::NR31):
+            return nr31;
+        case addr(AudioRegister::NR32):
+            return nr32;
+        case addr(AudioRegister::NR33):
+            return nr33;
+        case addr(AudioRegister::NR34):
+            return nr34;
+        case addr(AudioRegister::NR41):
+            return nr41;
+        case addr(AudioRegister::NR42):
+            return nr42;
+        case addr(AudioRegister::NR43):
+            return nr43;
+        case addr(AudioRegister::NR44):
+            return nr44;
+        case addr(AudioRegister::NR50):
+            return nr50;
+        case addr(AudioRegister::NR51):
+            return nr51;
+        case addr(AudioRegister::NR52):
+            return get_nr52_status();
+        default:
+            return 0xFF;
+    }
+}
+
+void APU::write_register(uint16_t address, uint8_t value) {
+    switch (address) {
+        case addr(AudioRegister::NR10):
+            nr10 = value;
+            break;
+        case addr(AudioRegister::NR11):
+            nr11 = value;
+            break;
+        case addr(AudioRegister::NR12):
+            nr12 = value;
+            break;
+        case addr(AudioRegister::NR13):
+            nr13 = value;
+            break;
+        case addr(AudioRegister::NR14):
+            nr14 = value;
+            trigger_channel(address);
+            break;
+        case addr(AudioRegister::NR21):
+            nr21 = value;
+            break;
+        case addr(AudioRegister::NR22):
+            nr22 = value;
+            break;
+        case addr(AudioRegister::NR23):
+            nr23 = value;
+            break;
+        case addr(AudioRegister::NR24):
+            nr24 = value;
+            trigger_channel(address);
+            break;
+        case addr(AudioRegister::NR30):
+            nr30 = value;
+            break;
+        case addr(AudioRegister::NR31):
+            nr31 = value;
+            break;
+        case addr(AudioRegister::NR32):
+            nr32 = value;
+            break;
+        case addr(AudioRegister::NR33):
+            nr33 = value;
+            break;
+        case addr(AudioRegister::NR34):
+            nr34 = value;
+            trigger_channel(address);
+            break;
+        case addr(AudioRegister::NR41):
+            nr41 = value;
+            break;
+        case addr(AudioRegister::NR42):
+            nr42 = value;
+            break;
+        case addr(AudioRegister::NR43):
+            nr43 = value;
+            break;
+        case addr(AudioRegister::NR44):
+            nr44 = value;
+            trigger_channel(address);
+            break;
+        case addr(AudioRegister::NR50):
+            nr50 = value;
+            break;
+        case addr(AudioRegister::NR51):
+            nr51 = value;
+            break;
+        case addr(AudioRegister::NR52):
+            nr52 = (value & 0xFE) | (nr52 & 1);
+            if ((value & 0x80) == 0) {
+                power_off();
+            } else {
+                power_on();
+            }
+            break;
+    }
 }
 
 uint8_t APU::read_wave_byte(uint16_t address) const {
-    // Read directly from bus wave RAM
-    return memory.read_privileged(address);
+    if (address >= 0xFF30 && address <= 0xFF3F) {
+        return waveRAM[address - 0xFF30];
+    }
+    return 0xFF;
+}
+
+void APU::write_wave_byte(uint16_t address, uint8_t value) {
+    if (address >= 0xFF30 && address <= 0xFF3F) {
+        waveRAM[address - 0xFF30] = value;
+    }
 }
 
 bool APU::is_wave_active() const { return ch3.enabled && ch3.dacEnabled; }

@@ -1,7 +1,6 @@
 #pragma once 
 
 #include "../MMU/bus.h"
-#include "timer.h"
 
 
 #define RA r8[7]
@@ -30,9 +29,12 @@ namespace GBC {
         uint8_t cycles = 0;
         bool IME = false, IMEdelay = false, halted = false, stathigh = false;
         uint8_t cached_interrupt_flags = 0;
+        uint8_t cached_IE = 0;
+        bool interrupt_cache_valid = false;
 
         void execute();
         inline void executeCB();
+        void invalidate_interrupt_cache() { interrupt_cache_valid = false; }
 
         //===========================================================
         // Flag accessors – F is stored in r8[6]
