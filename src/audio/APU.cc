@@ -636,16 +636,20 @@ void APU::tick_noise() {
     }
 
     if (ch4.timer == 0) {
-        byte bit0 = ch4.lfsr & 1;
+        byte bit0 = isBitSet(ch4.lfsr, 0) ? 1 : 0;
         byte bit1 = isBitSet(ch4.lfsr, 1) ? 1 : 0;
         byte newBit = (~(bit0 ^ bit1)) & 1;
 
-        ch4.lfsr &= ~(1 << 15);
-        ch4.lfsr |= static_cast<half>(newBit) << 15;
+        ch4.lfsr = clearBit(ch4.lfsr, 15);
+        if (newBit != 0) {
+            ch4.lfsr = setBit(ch4.lfsr, 15);
+        }
 
         if (widthMode) {
-            ch4.lfsr &= ~(1 << 7);
-            ch4.lfsr |= static_cast<half>(newBit) << 7;
+            ch4.lfsr = clearBit(ch4.lfsr, 7);
+            if (newBit != 0) {
+                ch4.lfsr = setBit(ch4.lfsr, 7);
+            }
         }
 
         ch4.lfsr >>= 1;

@@ -2,13 +2,13 @@
 
 #include <array>
 #include <cstdint>
-#include <string>
+#include <string_view>
 
 #include "../bit_ops.h"
 
 namespace GBC {
 
-const std::array<byte, 256> opcode_cycles{
+constexpr std::array<byte, 256> opcode_cycles = {
     1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1, 1, 3, 2, 2, 1, 1, 2, 1,
     3, 2, 2, 2, 1, 1, 2, 1, 2, 3, 2, 2, 1, 1, 2, 1, 2, 2, 2, 2, 1, 1, 2, 1,
     2, 3, 2, 2, 3, 3, 3, 1, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
@@ -20,7 +20,7 @@ const std::array<byte, 256> opcode_cycles{
     2, 3, 3, 4, 3, 4, 2, 4, 2, 4, 3, 0, 3, 6, 2, 4, 2, 3, 3, 0, 3, 4, 2, 4,
     2, 4, 3, 0, 3, 0, 2, 4, 3, 3, 2, 0, 0, 4, 2, 4, 4, 1, 4, 0, 0, 0, 2, 4,
     3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4};
-const std::array<byte, 256> opcode_cycles_branched{
+constexpr std::array<byte, 256> opcode_cycles_branched = {
     1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1, 1, 3, 2, 2, 1, 1, 2, 1,
     3, 2, 2, 2, 1, 1, 2, 1, 3, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
     3, 3, 2, 2, 3, 3, 3, 1, 3, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
@@ -32,7 +32,7 @@ const std::array<byte, 256> opcode_cycles_branched{
     5, 3, 4, 4, 6, 4, 2, 4, 5, 4, 4, 0, 6, 6, 2, 4, 5, 3, 4, 0, 6, 4, 2, 4,
     5, 4, 4, 0, 6, 0, 2, 4, 3, 3, 2, 0, 0, 4, 2, 4, 4, 1, 4, 0, 0, 0, 2, 4,
     3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4};
-const std::array<byte, 256> opcode_cycles_cb = {
+constexpr std::array<byte, 256> opcode_cycles_cb = {
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 3, 2,
@@ -45,7 +45,7 @@ const std::array<byte, 256> opcode_cycles_cb = {
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2};
 
-const std::array<std::string, 256> instructions{
+constexpr std::array<std::string_view, 256> instructions = {
     "NOP",          "LD BC, d16", "LD (BC), A",  "INC BC",
     "INC B",        "DEC B",      "LD B, d8",    "RLCA",
     "LD (a16), SP", "ADD HL, BC", "LD A, (BC)",  "DEC BC",
@@ -110,7 +110,7 @@ const std::array<std::string, 256> instructions{
     "No Opcode",    "PUSH AF",    "OR d8",       "RST 6",
     "LD HL, SP+s8", "LD SP, HL",  "LD A, (a16)", "EI",
     "No Opcode",    "No Opcode",  "CP d8",       "RST 7"};
-const std::array<std::string, 256> CBinstructions{
+constexpr std::array<std::string_view, 256> CBinstructions = {
     "RLC B",       "RLC C",       "RLC D",       "RLC E",       "RLC H",
     "RLC L",       "RLC (HL)",    "RLC A",       "RRC B",       "RRC C",
     "RRC D",       "RRC E",       "RRC H",       "RRC L",       "RRC (HL)",

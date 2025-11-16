@@ -17,7 +17,8 @@ namespace GBC {
 constexpr uint32_t SINGLE_TIME_MHZ = 4194304;
 class SM83 {
    public:
-    SM83(address_bus *memory, CgbConfig &config) : memory(memory), config(config) {
+    SM83(address_bus *memory, CgbConfig &config)
+        : memory(memory), config(config) {
         memset(r8, 0, 8);
     }
 
@@ -97,9 +98,7 @@ class SM83 {
         r8[5] = val & 0xFF;
     }
 
-    [[gnu::always_inline]] inline byte fetch8() {
-        return memory->read(pc++);
-    }
+    [[gnu::always_inline]] inline byte fetch8() { return memory->read(pc++); }
     [[gnu::always_inline]] inline half fetch16() {
         half result = memory->read(pc) | (memory->read(pc + 1) << 8);
         pc += 2;
@@ -112,9 +111,7 @@ class SM83 {
     inline bool halfCarryAdd_WithCarry(byte a, byte b) {
         return ((a & 0xF) + (b & 0xF) + getCarryFlag()) > 0xF;
     }
-    inline bool halfCarrySub(byte a, byte b) {
-        return (a & 0xF) < (b & 0xF);
-    }
+    inline bool halfCarrySub(byte a, byte b) { return (a & 0xF) < (b & 0xF); }
     inline bool halfCarrySub_WithCarry(byte a, byte b) {
         return (a & 0xF) < ((b & 0xF) + getCarryFlag());
     }

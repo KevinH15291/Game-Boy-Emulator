@@ -8,6 +8,7 @@
 
 #include "CPU/SM83.h"
 #include "CgbConfig.h"
+#include "DebugMacros.h"
 #include "MMU/bus.h"
 #include "audio/APU.h"
 #include "bus.h"
@@ -33,7 +34,6 @@ class GBC {
     void log_frame_state(uint32_t frame_index);
 
    public:
-
     const bool window_enabled_;
     CgbConfig config{};
     address_bus addresses;
@@ -45,7 +45,6 @@ class GBC {
     int prevpc = 0, cachedline = 0, frame = 0;
     unsigned long long cycle_count = 0;
 
-    bool debug_flag = 0;
 #ifdef __EMSCRIPTEN__
     byte buttonState[8] = {
         0};  // 8 buttons: A, B, Select, Start, Right, Left, Up, Down

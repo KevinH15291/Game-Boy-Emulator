@@ -25,6 +25,7 @@ void PPU::init_window() {
 #endif
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     SDL_RenderClear(renderer);
+
     texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24,
                                 SDL_TEXTUREACCESS_STREAMING, WINDOW_WIDTH,
                                 WINDOW_HEIGHT);
@@ -33,44 +34,49 @@ void PPU::init_window() {
 #endif
 }
 
+#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
 void PPU::init_debug_window() {
-#ifdef __EMSCRIPTEN__
-    debug_render = false;
-#else
-    if (!debug_render) {
-        debug_render = true;
-        SDL_Init(SDL_INIT_VIDEO);
-        SDL_CreateWindowAndRenderer("(GBC) hello tile window", 128 * 4, 192 * 4,
-                                    SDL_WINDOW_RESIZABLE, &debug_tile_window,
-                                    &debug_tile_renderer);
-        SDL_SetRenderScale(debug_tile_renderer, 4, 4);
-        SDL_SetRenderDrawColor(debug_tile_renderer, 255, 255, 255, 255);
-        SDL_RenderClear(debug_tile_renderer);
-        SDL_Init(SDL_INIT_VIDEO);
-        SDL_CreateWindowAndRenderer("(GBC) hello background window", 256 * 2,
-                                    256 * 2, SDL_WINDOW_RESIZABLE,
-                                    &debug_bg_window, &debug_bg_renderer);
-        SDL_SetRenderScale(debug_bg_renderer, 2, 2);
-        SDL_SetRenderDrawColor(debug_bg_renderer, 255, 255, 255, 255);
-        SDL_RenderClear(debug_bg_renderer);
-        SDL_CreateWindowAndRenderer("(GBC) hello window window",
-                                    WINDOW_WIDTH * 4, WINDOW_HEIGHT * 4,
-                                    SDL_WINDOW_RESIZABLE, &debug_window_window,
-                                    &debug_window_renderer);
-        SDL_SetRenderScale(debug_window_renderer, 4, 4);
-        SDL_SetRenderDrawColor(debug_window_renderer, 255, 255, 255, 255);
-        SDL_RenderClear(debug_window_renderer);
-        SDL_Init(SDL_INIT_VIDEO);
-        SDL_CreateWindowAndRenderer("(GBC) hello object window",
-                                    WINDOW_WIDTH * 4, WINDOW_HEIGHT * 4,
-                                    SDL_WINDOW_RESIZABLE, &debug_object_window,
-                                    &debug_object_renderer);
-        SDL_SetRenderScale(debug_object_renderer, 4, 4);
-        SDL_SetRenderDrawColor(debug_object_renderer, 255, 255, 255, 255);
-        SDL_RenderClear(debug_object_renderer);
+    if (debug_tile_window != nullptr) {
+        return;
     }
-#endif
+    SDL_Init(SDL_INIT_VIDEO);
+    debug_tile_window = SDL_CreateWindow("(GBC) hello tile window", 128 * 4,
+                                         192 * 4, SDL_WINDOW_RESIZABLE);
+    debug_tile_renderer = SDL_CreateRenderer(debug_tile_window, nullptr);
+    SDL_SetRenderLogicalPresentation(debug_tile_renderer, 128, 192,
+                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+    SDL_SetRenderDrawColor(debug_tile_renderer, 255, 255, 255, 255);
+    SDL_RenderClear(debug_tile_renderer);
+
+    debug_bg_window = SDL_CreateWindow("(GBC) hello background window", 256 * 2,
+                                       256 * 2, SDL_WINDOW_RESIZABLE);
+    debug_bg_renderer = SDL_CreateRenderer(debug_bg_window, nullptr);
+    SDL_SetRenderLogicalPresentation(debug_bg_renderer, 256, 256,
+                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+    SDL_SetRenderDrawColor(debug_bg_renderer, 255, 255, 255, 255);
+    SDL_RenderClear(debug_bg_renderer);
+
+    debug_window_window =
+        SDL_CreateWindow("(GBC) hello window window", WINDOW_WIDTH * 4,
+                         WINDOW_HEIGHT * 4, SDL_WINDOW_RESIZABLE);
+    debug_window_renderer = SDL_CreateRenderer(debug_window_window, nullptr);
+    SDL_SetRenderLogicalPresentation(debug_window_renderer, WINDOW_WIDTH,
+                                     WINDOW_HEIGHT,
+                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+    SDL_SetRenderDrawColor(debug_window_renderer, 255, 255, 255, 255);
+    SDL_RenderClear(debug_window_renderer);
+
+    debug_object_window =
+        SDL_CreateWindow("(GBC) hello object window", WINDOW_WIDTH * 4,
+                         WINDOW_HEIGHT * 4, SDL_WINDOW_RESIZABLE);
+    debug_object_renderer = SDL_CreateRenderer(debug_object_window, nullptr);
+    SDL_SetRenderLogicalPresentation(debug_object_renderer, WINDOW_WIDTH,
+                                     WINDOW_HEIGHT,
+                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+    SDL_SetRenderDrawColor(debug_object_renderer, 255, 255, 255, 255);
+    SDL_RenderClear(debug_object_renderer);
 }
+#endif
 
 PPU::~PPU() {
     if (texture) SDL_DestroyTexture(texture);
@@ -106,20 +112,23 @@ void PPU::execute_cycle() {
     }
 
     if (!isBitSet(cached_LCDC, 7)) {
-        reg_STAT = (reg_STAT & 0xF8) | 0 | (lyc_match << 2);
+        set_mode(RenderingState::hblank, false);
+        bus->write(addr(IORegister::IF),
+                   clearBit(bus->read(addr(IORegister::IF)), 1));
         return;
     }
     bus->write(addr(IORegister::IF),
                clearBit(bus->read(addr(IORegister::IF)), 1));
-    if (isBitSet(reg_STAT, 6) && lyc_match)
+    if (isBitSet(reg_STAT, 6) && lyc_match) {
         bus->write(addr(IORegister::IF),
                    setBit(bus->read(addr(IORegister::IF)), 1));
+    }
 
     if (lines < 144) {
         if (dots < 80) {
             if (mode != RenderingState::OAMscan) {
                 objnum = 0;
-                mode = RenderingState::OAMscan;
+                set_mode(RenderingState::OAMscan);
                 byte objsize = isBitSet(cached_LCDC, 2) ? 16 : 8;
 
                 for (int16_t i = 0x00; i < 0x9F; i += 4) {
@@ -142,27 +151,19 @@ void PPU::execute_cycle() {
 
                     if (objnum == 10) break;
                 }
-                reg_STAT = (reg_STAT & 0xF8) | 2 | (lyc_match << 2);
-                if (isBitSet(reg_STAT, 5))
-                    bus->write(addr(IORegister::IF),
-                               setBit(bus->read(addr(IORegister::IF)), 1));
             }
 
         } else if (dots < 252) {
             if (mode != RenderingState::draw) {
-                mode = RenderingState::draw;
+                set_mode(RenderingState::draw, false);
                 renderX = 0;  // Reset renderX at start of draw phase
                 wlyenabled = false;
-#ifndef NDEBUG
-                debug_callback = true;
-#endif
-                reg_STAT = (reg_STAT & 0xF8) | 3 | (lyc_match << 2);
             }
 
             draw_pixel();
         } else {
             if (mode != RenderingState::hblank) {
-                mode = RenderingState::hblank;
+                set_mode(RenderingState::hblank);
                 if (bus != nullptr) {
                     bus->handle_hblank_hdma();
                 }
@@ -170,49 +171,15 @@ void PPU::execute_cycle() {
                 if (wlyenabled) {
                     ++wly;
                 }
-                reg_STAT = (reg_STAT & 0xF8) | 0 | (lyc_match << 2);
-
-                if (isBitSet(reg_STAT, 3))
-                    bus->write(addr(IORegister::IF),
-                               setBit(bus->read(addr(IORegister::IF)), 1));
             }
         }
     } else {
         if (mode != RenderingState::vblank) {
-            mode = RenderingState::vblank;
+            set_mode(RenderingState::vblank);
             wly = 0;
             bus->write(addr(IORegister::IF),
-                       bus->read(addr(IORegister::IF)) | 1);
-            if (texture && renderer) {
-                void* pixels;
-                int pitch;
-                SDL_LockTexture(texture, nullptr, &pixels, &pitch);
-                byte* pixel_data = static_cast<byte*>(pixels);
-                for (int y = 0; y < WINDOW_HEIGHT; ++y) {
-                    for (int x = 0; x < WINDOW_WIDTH; ++x) {
-                        const uint32_t color = frame_rgb[y * WINDOW_WIDTH + x];
-                        pixel_data[y * pitch + x * 3] =
-                            static_cast<byte>(getBitRange(color, 16, 8));
-                        pixel_data[y * pitch + x * 3 + 1] =
-                            static_cast<byte>(getBitRange(color, 8, 8));
-                        pixel_data[y * pitch + x * 3 + 2] =
-                            static_cast<byte>(getBitRange(color, 0, 8));
-                    }
-                }
-                SDL_UnlockTexture(texture);
-#ifdef __EMSCRIPTEN__
-                SDL_RenderCopy(renderer, texture, nullptr, nullptr);
-#else
-                SDL_RenderTexture(renderer, texture, nullptr, nullptr);
-#endif
-                SDL_RenderPresent(renderer);
-            } else if (renderer) {
-                SDL_RenderPresent(renderer);
-            }
-            if (isBitSet(reg_STAT, 4))
-                bus->write(addr(IORegister::IF),
-                           setBit(bus->read(addr(IORegister::IF)), 1));
-            reg_STAT = (reg_STAT & 0xF8) | 1 | (lyc_match << 2);
+                       setBit(bus->read(addr(IORegister::IF)), 0));
+            upload_frame_to_texture();
         }
     }
 
@@ -263,52 +230,42 @@ void PPU::draw_pixel() {
         obj_pixel = sample_object_pixel();
     }
 
-    uint32_t final_color = bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
+    const uint32_t bg_color_rgb =
+        bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
+    uint32_t final_color = bg_color_rgb;
     const bool sprite_visible = obj_pixel.has_pixel && obj_pixel.color != 0;
     const bool bg_has_color = bg_pixel.color != 0;
     const bool bg_priority = bg_pixel.priority || bus->bg_priority_over_obj();
+    uint32_t obj_color_rgb = 0;
+    bool obj_color_cached = false;
+    const auto get_obj_color = [&]() -> uint32_t {
+        if (!obj_color_cached) {
+            obj_color_rgb =
+                bus->get_obj_color(obj_pixel.palette, obj_pixel.color);
+            obj_color_cached = true;
+        }
+        return obj_color_rgb;
+    };
 
     if (obj_enabled && sprite_visible) {
         if (!bg_enabled || !bg_has_color) {
-            final_color =
-                bus->get_obj_color(obj_pixel.palette, obj_pixel.color);
+            final_color = get_obj_color();
         } else if (obj_pixel.priority && bg_has_color) {
-            final_color = bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
+            final_color = bg_color_rgb;
         } else if (bg_priority && bg_has_color) {
-            final_color = bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
+            final_color = bg_color_rgb;
         } else {
-            final_color =
-                bus->get_obj_color(obj_pixel.palette, obj_pixel.color);
+            final_color = get_obj_color();
         }
     }
 
-    if (debug_render) {
-        const uint32_t obj_color_rgb =
-            bus->get_obj_color(obj_pixel.palette, obj_pixel.color);
-        SDL_SetRenderDrawColor(
-            debug_object_renderer,
-            static_cast<byte>(getBitRange(obj_color_rgb, 16, 8)),
-            static_cast<byte>(getBitRange(obj_color_rgb, 8, 8)),
-            static_cast<byte>(getBitRange(obj_color_rgb, 0, 8)), 255);
-#ifdef __EMSCRIPTEN__
-        SDL_RenderDrawPoint(debug_object_renderer, pipeline_x, lines);
-#else
-        SDL_RenderPoint(debug_object_renderer, pipeline_x, lines);
+#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
+    init_debug_window();
+    const uint32_t obj_debug_color = obj_pixel.has_pixel ? get_obj_color() : 0;
+    render_debug_point(debug_object_renderer, obj_debug_color, pipeline_x,
+                       lines);
+    render_debug_point(debug_window_renderer, bg_color_rgb, pipeline_x, lines);
 #endif
-
-        const uint32_t bg_color_rgb =
-            bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
-        SDL_SetRenderDrawColor(
-            debug_window_renderer,
-            static_cast<byte>(getBitRange(bg_color_rgb, 16, 8)),
-            static_cast<byte>(getBitRange(bg_color_rgb, 8, 8)),
-            static_cast<byte>(getBitRange(bg_color_rgb, 0, 8)), 255);
-#ifdef __EMSCRIPTEN__
-        SDL_RenderDrawPoint(debug_window_renderer, pipeline_x, lines);
-#else
-        SDL_RenderPoint(debug_window_renderer, pipeline_x, lines);
-#endif
-    }
 
     const int32_t screen_x = pipeline_x;
     if (screen_x >= 0 && screen_x < static_cast<int32_t>(WINDOW_WIDTH) &&
@@ -347,7 +304,7 @@ inline PPU::ObjPixel PPU::sample_object_pixel() {
                                              : (isBitSet(flags, 4) ? 1 : 0);
         const byte tile_bank = (config.cgb_mode && isBitSet(flags, 3)) ? 1 : 0;
 
-        int line = static_cast<int>(lines) - sprite.objy;
+        int line = lines - sprite.objy;
         if (line < 0 || line >= objsize) {
             continue;
         }
@@ -383,45 +340,22 @@ inline PPU::ObjPixel PPU::sample_object_pixel() {
 }
 
 inline PPU::BgPixel PPU::sample_bg_pixel(half tilex, half tiley) {
-    const half BG_tile_map = isBitSet(cached_LCDC, 3) ? 0x9C00 : 0x9800;
-    const bool unsigned_table = isBitSet(cached_LCDC, 4);
-    const half tile_index_addr = static_cast<half>(
-        ((tilex / 8) & 31) + (((tiley / 8) & 31) * 32) + BG_tile_map);
-    const half offset =
-        static_cast<half>(tile_index_addr - addr(MemoryRegion::VIDEO_RAM));
-    const byte tile_index = bus->read_vram(0, offset, true);
-    byte attributes = 0;
-    if (config.cgb_mode) {
-        attributes = bus->read_vram(1, offset, true);
-    }
-
-    const byte tile_bank = (config.cgb_mode && isBitSet(attributes, 3)) ? 1 : 0;
-    byte row = tiley & 0x07;
-    if (config.cgb_mode && isBitSet(attributes, 5)) {
-        row = static_cast<byte>(7 - row);
-    }
-    const auto [tilelow, tilehigh] =
-        fetch_tile_row(tile_index, row, unsigned_table, tile_bank);
-
-    byte bit_index = 7 - (tilex & 0x07);
-    if (config.cgb_mode && isBitSet(attributes, 4)) {
-        bit_index = tilex & 0x07;
-    }
-    const byte mask = static_cast<byte>(1u << bit_index);
-    const byte color = ((tilelow & mask) ? 1 : 0) | ((tilehigh & mask) ? 2 : 0);
-
-    BgPixel pixel{};
-    pixel.color = color;
-    pixel.palette = config.cgb_mode ? getBitRange(attributes, 0, 3) : 0;
-    pixel.priority = config.cgb_mode && isBitSet(attributes, 6);
-    return pixel;
+    return sample_tile_map_pixel(TileMapKind::Background, tilex, tiley);
 }
 
 inline PPU::BgPixel PPU::sample_window_pixel(half tilex, half tiley) {
-    const half window_tile_map = isBitSet(cached_LCDC, 6) ? 0x9C00 : 0x9800;
+    return sample_tile_map_pixel(TileMapKind::Window, tilex, tiley);
+}
+
+inline PPU::BgPixel PPU::sample_tile_map_pixel(TileMapKind kind, half tilex,
+                                               half tiley) {
+    const bool window_map = (kind == TileMapKind::Window);
+    const half tile_map = window_map
+                              ? (isBitSet(cached_LCDC, 6) ? 0x9C00 : 0x9800)
+                              : (isBitSet(cached_LCDC, 3) ? 0x9C00 : 0x9800);
     const bool unsigned_table = isBitSet(cached_LCDC, 4);
     const half tile_index_addr = static_cast<half>(
-        ((tilex / 8) & 31) + (((tiley / 8) & 31) * 32) + window_tile_map);
+        ((tilex / 8) & 31) + (((tiley / 8) & 31) * 32) + tile_map);
     const half offset =
         static_cast<half>(tile_index_addr - addr(MemoryRegion::VIDEO_RAM));
     const byte tile_index = bus->read_vram(0, offset, true);
@@ -471,8 +405,83 @@ std::pair<byte, byte> PPU::fetch_tile_row(
     return {tilelow, tilehigh};
 }
 
+void PPU::set_mode(RenderingState new_mode, bool allow_interrupt) {
+    mode = new_mode;
+    reg_STAT = static_cast<byte>(
+        (reg_STAT & 0xF8) | static_cast<byte>(new_mode) | (lyc_match << 2));
+    if (!allow_interrupt) {
+        return;
+    }
+    switch (new_mode) {
+        case RenderingState::hblank:
+            request_stat_interrupt(3);
+            break;
+        case RenderingState::vblank:
+            request_stat_interrupt(4);
+            break;
+        case RenderingState::OAMscan:
+            request_stat_interrupt(5);
+            break;
+        case RenderingState::draw:
+            break;
+    }
+}
+
+void PPU::request_stat_interrupt(byte stat_bit) {
+    if (!isBitSet(reg_STAT, stat_bit) || bus == nullptr) {
+        return;
+    }
+    bus->write(addr(IORegister::IF),
+               setBit(bus->read(addr(IORegister::IF)), 1));
+}
+
+void PPU::upload_frame_to_texture() {
+    if (renderer == nullptr) {
+        return;
+    }
+    if (texture == nullptr) {
+        SDL_RenderPresent(renderer);
+        return;
+    }
+
+    void* pixels = nullptr;
+    int pitch = 0;
+    if (!SDL_LockTexture(texture, nullptr, &pixels, &pitch)) {
+        return;
+    }
+    auto* pixel_data = static_cast<byte*>(pixels);
+    for (int y = 0; y < static_cast<int>(WINDOW_HEIGHT); ++y) {
+        for (int x = 0; x < static_cast<int>(WINDOW_WIDTH); ++x) {
+            const uint32_t color = frame_rgb[y * WINDOW_WIDTH + x];
+            const int index = y * pitch + x * 3;
+            pixel_data[index] = static_cast<byte>(getBitRange(color, 16, 8));
+            pixel_data[index + 1] = static_cast<byte>(getBitRange(color, 8, 8));
+            pixel_data[index + 2] = static_cast<byte>(getBitRange(color, 0, 8));
+        }
+    }
+    SDL_UnlockTexture(texture);
+#ifdef __EMSCRIPTEN__
+    SDL_RenderCopy(renderer, texture, nullptr, nullptr);
+#else
+    SDL_RenderTexture(renderer, texture, nullptr, nullptr);
+#endif
+    SDL_RenderPresent(renderer);
+}
+
+#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
+void PPU::render_debug_point(SDL_Renderer* target, uint32_t color, int x,
+                             int y) {
+    if (target == nullptr) {
+        return;
+    }
+    SDL_SetRenderDrawColor(target, static_cast<byte>(getBitRange(color, 16, 8)),
+                           static_cast<byte>(getBitRange(color, 8, 8)),
+                           static_cast<byte>(getBitRange(color, 0, 8)), 255);
+    SDL_RenderPoint(target, x, y);
+}
+
 void PPU::render_debug() {
-    if (!debug_render) init_debug_window();
+    init_debug_window();
 
     byte wx = cached_WX, wy = cached_WY, scx = cached_SCX, scy = cached_SCY;
 
@@ -487,11 +496,7 @@ void PPU::render_debug() {
                                    static_cast<byte>(getBitRange(color, 8, 8)),
                                    static_cast<byte>(getBitRange(color, 0, 8)),
                                    255);
-#ifdef __EMSCRIPTEN__
-            SDL_RenderDrawPoint(debug_bg_renderer, i, j);
-#else
             SDL_RenderPoint(debug_bg_renderer, i, j);
-#endif
         }
     }
 
@@ -499,6 +504,7 @@ void PPU::render_debug() {
     SDL_RenderPresent(debug_window_renderer);
     SDL_RenderPresent(debug_bg_renderer);
 }
+#endif
 
 void PPU::dump_info() {
     std::cerr << std::hex << "dots: " << dots << '\n';

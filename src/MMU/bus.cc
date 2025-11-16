@@ -2,10 +2,13 @@
 
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <expected>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 
@@ -20,6 +23,95 @@ namespace {
 constexpr uint64_t kSecondsPerMinute = 60;
 constexpr uint64_t kSecondsPerHour = 60 * kSecondsPerMinute;
 constexpr uint64_t kSecondsPerDay = 24 * kSecondsPerHour;
+
+struct Region {
+    half begin;
+    half end;
+};
+
+constexpr Region make_region(MemoryRegion begin, MemoryRegion end) {
+    return Region{addr(begin), addr(end)};
+}
+
+constexpr Region kRomBank00 =
+    make_region(MemoryRegion::ROM_BANK_00, MemoryRegion::END_ROM_BANK_00);
+constexpr Region kRomBankNN =
+    make_region(MemoryRegion::ROM_BANK_NN, MemoryRegion::END_ROM_BANK_NN);
+constexpr Region kWorkRam0 =
+    make_region(MemoryRegion::WORK_RAM_BANK0, MemoryRegion::END_WORK_RAM_BANK0);
+constexpr Region kWorkRamN =
+    make_region(MemoryRegion::WORK_RAM_BANKN, MemoryRegion::END_WORK_RAM_BANKN);
+constexpr Region kVideoRam =
+    make_region(MemoryRegion::VIDEO_RAM, MemoryRegion::END_VIDEO_RAM);
+constexpr Region kExternalRam =
+    make_region(MemoryRegion::EXTERNAL_RAM, MemoryRegion::END_EXTERNAL_RAM);
+constexpr Region kOamRange =
+    make_region(MemoryRegion::OAMaddress, MemoryRegion::END_OAM);
+constexpr Region kIoRange =
+    make_region(MemoryRegion::IO_REGISTERS, MemoryRegion::END_IO_REGISTERS);
+constexpr Region kHighRam =
+    make_region(MemoryRegion::HIGH_RAM, MemoryRegion::END_HIGH_RAM);
+constexpr Region kNotUsable =
+    make_region(MemoryRegion::NOT_USUABLE, MemoryRegion::END_NOT_USUABLE);
+
+constexpr half kIoBase = addr(MemoryRegion::IO_REGISTERS);
+constexpr size_t kJoypIndex =
+    addr(IORegister::JOYP) - addr(MemoryRegion::IO_REGISTERS);
+
+template <typename T>
+constexpr bool in_region(T address, const Region& region) {
+    return address >= region.begin && address <= region.end;
+}
+
+constexpr half kAudioBase = addr(AudioRegister::NR10);
+constexpr half kWaveBase = 0xFF30;
+
+constexpr std::bitset<0x20> build_audio_bitset() {
+    std::bitset<0x20> mask;
+    const std::array<half, 21> regs = {
+        addr(AudioRegister::NR10), addr(AudioRegister::NR11),
+        addr(AudioRegister::NR12), addr(AudioRegister::NR13),
+        addr(AudioRegister::NR14), addr(AudioRegister::NR21),
+        addr(AudioRegister::NR22), addr(AudioRegister::NR23),
+        addr(AudioRegister::NR24), addr(AudioRegister::NR30),
+        addr(AudioRegister::NR31), addr(AudioRegister::NR32),
+        addr(AudioRegister::NR33), addr(AudioRegister::NR34),
+        addr(AudioRegister::NR41), addr(AudioRegister::NR42),
+        addr(AudioRegister::NR43), addr(AudioRegister::NR44),
+        addr(AudioRegister::NR50), addr(AudioRegister::NR51),
+        addr(AudioRegister::NR52)};
+    for (const auto reg : regs) {
+        mask.set(static_cast<size_t>(reg - kAudioBase));
+    }
+    return mask;
+}
+
+constexpr std::bitset<0x10> build_wave_bitset() {
+    std::bitset<0x10> mask;
+    for (half offset = 0; offset < 0x10; ++offset) {
+        mask.set(static_cast<size_t>(offset));
+    }
+    return mask;
+}
+
+constexpr auto kAudioRegisterBits = build_audio_bitset();
+constexpr auto kWaveRegisterBits = build_wave_bitset();
+
+constexpr bool is_audio_register(half address) {
+    if (address < kAudioBase ||
+        address >= kAudioBase + kAudioRegisterBits.size()) {
+        return false;
+    }
+    return kAudioRegisterBits.test(static_cast<size_t>(address - kAudioBase));
+}
+
+constexpr bool is_wave_table_register(half address) {
+    if (address < kWaveBase ||
+        address >= kWaveBase + kWaveRegisterBits.size()) {
+        return false;
+    }
+    return kWaveRegisterBits.test(static_cast<size_t>(address - kWaveBase));
+}
 
 uint64_t host_seconds() {
     using clock = std::chrono::system_clock;
@@ -91,49 +183,68 @@ address_bus::address_bus(CgbConfig& config)
 
 address_bus::~address_bus() = default;
 
+namespace {
+
+std::expected<std::vector<byte>, std::string> read_file_bytes(
+    const std::filesystem::path& path, size_t max_size = SIZE_MAX) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+        return std::unexpected("Failed to open " + path.string());
+    }
+    file.seekg(0, std::ios::end);
+    const std::streampos length = file.tellg();
+    file.seekg(0, std::ios::beg);
+    if (length == 0) {
+        return std::unexpected("File is empty: " + path.string());
+    }
+    if (static_cast<size_t>(length) > max_size) {
+        return std::unexpected("File too large: " + path.string());
+    }
+    std::vector<byte> buffer(static_cast<size_t>(length));
+    if (!file.read(reinterpret_cast<char*>(buffer.data()), length)) {
+        return std::unexpected("Failed to read " + path.string());
+    }
+    return buffer;
+}
+
+}  // namespace
+
 void address_bus::load_boot_ROM(const char* fname, uint32_t size) {
     booting = 1;
-    FILE* fp = fopen(fname, "rb");
-    if (!fp) {
-        std::cerr << "Failed to open boot ROM: " << fname << std::endl;
+    const auto path = std::filesystem::path(fname);
+    auto data = read_file_bytes(path, size);
+    if (!data) {
+        std::cerr << data.error() << std::endl;
         return;
     }
-
-    for (int i = 0; i < size; ++i) {
-        if (feof(fp)) break;
-        bootrom[i] = fgetc(fp);
-        std::cout << bootrom[i];
-    }
-    std::cout << std::endl;
-    fclose(fp);
+    const auto& bytes = data.value();
+    const size_t copy_size = std::min<size_t>(bytes.size(), size);
+    std::copy_n(bytes.begin(), copy_size, bootrom.begin());
 }
 
 void address_bus::load_ROM(const char* fname) {
-    FILE* fp = fopen(fname, "rb");
-    if (!fp) {
-        std::cerr << "Failed to open ROM: " << fname << std::endl;
+    const auto path = std::filesystem::path(fname);
+    auto data = read_file_bytes(path, cartROM.size());
+    if (!data) {
+        std::cerr << data.error() << std::endl;
         return;
     }
-
-    const size_t max_bytes = cartROM.size();
-    const size_t bytes_read = fread(cartROM.data(), 1, max_bytes, fp);
-    const bool truncated = !feof(fp);
-    fclose(fp);
-    if (bytes_read == 0) {
-        std::cerr << "No data read from ROM: " << fname << std::endl;
-        return;
-    }
-    if (bytes_read < max_bytes) {
-        std::fill(cartROM.begin() + static_cast<std::ptrdiff_t>(bytes_read),
-                  cartROM.end(), 0);
-    } else if (truncated) {
-        std::cerr << "ROM larger than supported buffer (" << max_bytes
-                  << " bytes); data truncated.\n";
-    }
+    const auto bytes_read = data->size();
     if (bytes_read <= 0x148) {
         std::cerr << "ROM header too small: " << fname << std::endl;
         return;
     }
+    std::copy(data->begin(), data->end(), cartROM.begin());
+    if (bytes_read < cartROM.size()) {
+        std::fill(cartROM.begin() + static_cast<std::ptrdiff_t>(bytes_read),
+                  cartROM.end(), 0);
+    }
+    const size_t max_bytes = cartROM.size();
+    if (bytes_read == max_bytes && data->size() == max_bytes) {
+        std::cerr << "ROM larger than supported buffer (" << max_bytes
+                  << " bytes); data truncated.\n";
+    }
+
     mbc = static_cast<MemoryBankController>(cartROM[0x147]);
     rom_size = cartROM[0x148];
     const byte cgb_flag = cartROM[0x143];
@@ -152,7 +263,7 @@ void address_bus::load_ROM(const char* fname) {
     sync_key_registers();
     reset_MBC_state();
     std::ofstream("log.txt", std::ofstream::app)
-        << "mbc: " << std::hex << (int)mbc << '\n';
+        << "mbc: " << std::hex << static_cast<int>(mbc) << '\n';
 }
 
 #ifdef __EMSCRIPTEN__
@@ -220,16 +331,21 @@ void address_bus::reset_MBC_state() {
     update_hdma_status_register();
 }
 
-byte address_bus::read(half address) {
-    if (address <= addr(MemoryRegion::END_ROM_BANK_00)) {
+byte address_bus::read(half address) { return read_internal(address, false); }
+
+byte address_bus::read_privileged(half address) {
+    return read_internal(address, true);
+}
+
+byte address_bus::read_internal(half address, bool privileged) {
+    if (in_region(address, kRomBank00)) {
         if (address < 0x0100 && booting) {
             return bootrom[address];
         }
         return cartROM[address];
     }
 
-    if (address >= addr(MemoryRegion::ROM_BANK_NN) &&
-        address <= addr(MemoryRegion::END_ROM_BANK_NN)) {
+    if (in_region(address, kRomBankNN)) {
         half bank = rom_bank;
         if (mbc == MemoryBankController::MBC5 ||
             mbc == MemoryBankController::MBC5_RAM ||
@@ -251,54 +367,47 @@ byte address_bus::read(half address) {
                        addr(MemoryRegion::ROM_BANK_NN)];
     }
 
-    if (address >= addr(MemoryRegion::WORK_RAM_BANK0) &&
-        address <= addr(MemoryRegion::END_WORK_RAM_BANK0)) {
-        return workRAM[address - addr(MemoryRegion::WORK_RAM_BANK0)];
+    if (in_region(address, kWorkRam0)) {
+        return workRAM[address - kWorkRam0.begin];
     }
 
-    if (address >= addr(MemoryRegion::WORK_RAM_BANKN) &&
-        address <= addr(MemoryRegion::END_WORK_RAM_BANKN)) {
+    if (in_region(address, kWorkRamN)) {
         return workRAM[address + static_cast<int>(wram_bank) * 4 * KB -
-                       addr(MemoryRegion::WORK_RAM_BANKN)];
+                       kWorkRamN.begin];
     }
 
     if (address >= addr(MemoryRegion::ECHO_RAM1) &&
         address <= addr(MemoryRegion::EECHO_RAM2)) {
-        address -= 0x2000;
-        if (address >= addr(MemoryRegion::WORK_RAM_BANK0) &&
-            address <= addr(MemoryRegion::END_WORK_RAM_BANK0)) {
-            return workRAM[address - addr(MemoryRegion::WORK_RAM_BANK0)];
+        half echo_address = static_cast<half>(address - 0x2000);
+        if (in_region(echo_address, kWorkRam0)) {
+            return workRAM[echo_address - kWorkRam0.begin];
         }
-        return workRAM[address + static_cast<int>(wram_bank) * 4 * KB -
-                       addr(MemoryRegion::WORK_RAM_BANKN)];
+        return workRAM[echo_address + static_cast<int>(wram_bank) * 4 * KB -
+                       kWorkRamN.begin];
     }
 
-    if (address >= addr(MemoryRegion::VIDEO_RAM) &&
-        address <= addr(MemoryRegion::END_VIDEO_RAM)) {
-        const half offset = address - addr(MemoryRegion::VIDEO_RAM);
-        return read_vram(static_cast<byte>(vram_bank), offset, false);
+    if (in_region(address, kVideoRam)) {
+        const half offset = address - kVideoRam.begin;
+        return read_vram(static_cast<byte>(vram_bank), offset, privileged);
     }
 
-    if (address >= addr(MemoryRegion::OAMaddress) &&
-        address <= addr(MemoryRegion::END_OAM)) {
-        if (lcd_mode == RenderingState::draw ||
-            lcd_mode == RenderingState::OAMscan)
+    if (in_region(address, kOamRange)) {
+        if (!privileged && (lcd_mode == RenderingState::draw ||
+                            lcd_mode == RenderingState::OAMscan)) {
             return 0xFF;
-        return OAM[address - addr(MemoryRegion::OAMaddress)];
+        }
+        return OAM[address - kOamRange.begin];
     }
 
-    if (address >= addr(MemoryRegion::IO_REGISTERS) &&
-        address <= addr(MemoryRegion::END_IO_REGISTERS)) {
-        return readIO(address);
+    if (in_region(address, kIoRange)) {
+        return privileged ? IOrange[address - kIoRange.begin] : readIO(address);
     }
 
-    if (address >= addr(MemoryRegion::HIGH_RAM) &&
-        address <= addr(MemoryRegion::END_HIGH_RAM)) {
-        return HRAM[address - addr(MemoryRegion::HIGH_RAM)];
+    if (in_region(address, kHighRam)) {
+        return HRAM[address - kHighRam.begin];
     }
 
-    if (address >= addr(MemoryRegion::EXTERNAL_RAM) &&
-        address <= addr(MemoryRegion::END_EXTERNAL_RAM)) {
+    if (in_region(address, kExternalRam)) {
         if (!RAMenable) {
             return 0xFF;
         }
@@ -311,16 +420,13 @@ byte address_bus::read(half address) {
         }
         if (mbc == MemoryBankController::MBC2 ||
             mbc == MemoryBankController::MBC2_BATTERY) {
-            return (cartRAM[address - addr(MemoryRegion::EXTERNAL_RAM)] &
-                    0x0F) |
-                   0xF0;
+            return (cartRAM[address - kExternalRam.begin] & 0x0F) | 0xF0;
         }
         return cartRAM[address + 8 * KB * static_cast<int>(eram_bank) -
-                       addr(MemoryRegion::EXTERNAL_RAM)];
+                       kExternalRam.begin];
     }
 
-    if (address >= addr(MemoryRegion::NOT_USUABLE) &&
-        address <= addr(MemoryRegion::END_NOT_USUABLE)) {
+    if (in_region(address, kNotUsable)) {
         return 0x00;
     }
 
@@ -330,59 +436,16 @@ byte address_bus::read(half address) {
 }
 
 inline byte address_bus::readIO(half address) {
+    if (address == addr(IORegister::JOYP)) {
+        return read_joyp_state();
+    }
+    if (is_audio_register(address)) {
+        return apu->read_register(address);
+    }
+    if (is_wave_table_register(address)) {
+        return apu->read_wave_byte(address);
+    }
     switch (address) {
-        case addr(IORegister::JOYP):
-            if (getBitRange(read_privileged(address), 4, 2) == 0) {
-                return (read_privileged(addr(IORegister::JOYP)) & 0x30) |
-                       (input_s & input_d & 0x0F);
-            } else if (!isBitSet(read_privileged(address), 4)) {
-                return (read_privileged(addr(IORegister::JOYP)) & 0x30) |
-                       (input_d & 0x0F);
-            } else if (!isBitSet(read_privileged(address), 5)) {
-                return (read_privileged(addr(IORegister::JOYP)) & 0x30) |
-                       (input_s & 0x0F);
-            } else {
-                return 0x3F;
-            }
-        case addr(AudioRegister::NR10):
-        case addr(AudioRegister::NR11):
-        case addr(AudioRegister::NR12):
-        case addr(AudioRegister::NR13):
-        case addr(AudioRegister::NR14):
-        case addr(AudioRegister::NR21):
-        case addr(AudioRegister::NR22):
-        case addr(AudioRegister::NR23):
-        case addr(AudioRegister::NR24):
-        case addr(AudioRegister::NR30):
-        case addr(AudioRegister::NR31):
-        case addr(AudioRegister::NR32):
-        case addr(AudioRegister::NR33):
-        case addr(AudioRegister::NR34):
-        case addr(AudioRegister::NR41):
-        case addr(AudioRegister::NR42):
-        case addr(AudioRegister::NR43):
-        case addr(AudioRegister::NR44):
-        case addr(AudioRegister::NR50):
-        case addr(AudioRegister::NR51):
-        case addr(AudioRegister::NR52):
-            return apu->read_register(address);
-        case 0xFF30:
-        case 0xFF31:
-        case 0xFF32:
-        case 0xFF33:
-        case 0xFF34:
-        case 0xFF35:
-        case 0xFF36:
-        case 0xFF37:
-        case 0xFF38:
-        case 0xFF39:
-        case 0xFF3a:
-        case 0xFF3b:
-        case 0xFF3c:
-        case 0xFF3d:
-        case 0xFF3e:
-        case 0xFF3f:
-            return apu->read_wave_byte(address);
         case addr(VideoRegister::LCDC):
         case addr(VideoRegister::STAT):
         case addr(VideoRegister::SCY):
@@ -449,93 +512,21 @@ inline byte address_bus::readIO(half address) {
     }
 }
 
-byte address_bus::read_privileged(half address) {
-    if (address < 0x0100 && booting) {
-        return bootrom[address];
-    }
-
-    if (address <= addr(MemoryRegion::END_ROM_BANK_00)) return cartROM[address];
-
-    if (address >= addr(MemoryRegion::ROM_BANK_NN) &&
-        address <= addr(MemoryRegion::END_ROM_BANK_NN)) {
-        half bank = rom_bank;
-        if (mbc == MemoryBankController::MBC5 ||
-            mbc == MemoryBankController::MBC5_RAM ||
-            mbc == MemoryBankController::MBC5_RAM_BATTERY ||
-            mbc == MemoryBankController::MBC5_RUMBLE) {
-            bank &= 0x1FF;
-        } else if (mbc == MemoryBankController::MBC1 ||
-                   mbc == MemoryBankController::MBC1_RAM ||
-                   mbc == MemoryBankController::MBC1_RAM_BATTERY) {
-            if (rom_size <= 0x04) {
-                bank &= 0x1F;
-            } else {
-                bank &= 0x7F;
-            }
-        } else {
-            bank &= 0x7F;
-        }
-        return cartROM[address + 16 * KB * bank -
-                       addr(MemoryRegion::ROM_BANK_NN)];
-    }
-
-    if (address >= addr(MemoryRegion::VIDEO_RAM) &&
-        address <= addr(MemoryRegion::END_VIDEO_RAM)) {
-        const half offset = address - addr(MemoryRegion::VIDEO_RAM);
-        return read_vram(static_cast<byte>(vram_bank), offset, true);
-    }
-
-    if (address >= addr(MemoryRegion::WORK_RAM_BANK0) &&
-        address <= addr(MemoryRegion::END_WORK_RAM_BANK0)) {
-        return workRAM[address - addr(MemoryRegion::WORK_RAM_BANK0)];
-    }
-
-    if (address >= addr(MemoryRegion::WORK_RAM_BANKN) &&
-        address <= addr(MemoryRegion::END_WORK_RAM_BANKN)) {
-        return workRAM[address + static_cast<int>(wram_bank) * 4 * KB -
-                       addr(MemoryRegion::WORK_RAM_BANKN)];
-    }
-
-    if (address >= addr(MemoryRegion::ECHO_RAM1) &&
-        address <= addr(MemoryRegion::EECHO_RAM1)) {
-        return workRAM[address - addr(MemoryRegion::ECHO_RAM1)];
-    }
-
-    if (address >= addr(MemoryRegion::ECHO_RAM2) &&
-        address <= addr(MemoryRegion::EECHO_RAM2)) {
-        return workRAM[address + static_cast<int>(wram_bank) * 4 * KB -
-                       addr(MemoryRegion::ECHO_RAM2)];
-    }
-
-    if (address >= addr(MemoryRegion::OAMaddress) &&
-        address <= addr(MemoryRegion::END_OAM)) {
-        return OAM[address - addr(MemoryRegion::OAMaddress)];
-    }
-
-    if (address >= addr(MemoryRegion::IO_REGISTERS) &&
-        address <= addr(MemoryRegion::END_IO_REGISTERS)) {
-        return IOrange[address - addr(MemoryRegion::IO_REGISTERS)];
-    }
-
-    if (address >= addr(MemoryRegion::HIGH_RAM) &&
-        address <= addr(MemoryRegion::END_HIGH_RAM)) {
-        return HRAM[address - addr(MemoryRegion::HIGH_RAM)];
-    }
-
-    if (address == addr(MemoryRegion::IE)) return IEnable;
-
-    return 0xFF;
+void address_bus::write(half address, byte value) {
+    write_internal(address, value, false);
 }
 
-void address_bus::write(half address, byte value) {
-    if (address >= addr(MemoryRegion::WORK_RAM_BANK0) &&
-        address <= addr(MemoryRegion::END_WORK_RAM_BANK0)) {
-        workRAM[address - addr(MemoryRegion::WORK_RAM_BANK0)] = value;
+void address_bus::write_privileged(half address, byte value) {
+    write_internal(address, value, true);
+}
+
+void address_bus::write_internal(half address, byte value, bool privileged) {
+    if (in_region(address, kWorkRam0)) {
+        workRAM[address - kWorkRam0.begin] = value;
         return;
     }
 
-    if (address >= addr(MemoryRegion::WORK_RAM_BANKN) &&
-        address <= addr(MemoryRegion::END_WORK_RAM_BANKN)) {
+    if (in_region(address, kWorkRamN)) {
         workRAM[address + static_cast<int>(wram_bank) * 4 * KB -
                 addr(MemoryRegion::WORK_RAM_BANKN)] = value;
         return;
@@ -543,118 +534,60 @@ void address_bus::write(half address, byte value) {
 
     if (address >= addr(MemoryRegion::ECHO_RAM1) &&
         address <= addr(MemoryRegion::EECHO_RAM2)) {
-        address -= 0x2000;
-        if (address >= addr(MemoryRegion::WORK_RAM_BANK0) &&
-            address <= addr(MemoryRegion::END_WORK_RAM_BANK0)) {
-            workRAM[address - addr(MemoryRegion::WORK_RAM_BANK0)] = value;
+        half echo_address = static_cast<half>(address - 0x2000);
+        if (in_region(echo_address, kWorkRam0)) {
+            workRAM[echo_address - kWorkRam0.begin] = value;
             return;
         }
-        workRAM[address + static_cast<int>(wram_bank) * 4 * KB -
-                addr(MemoryRegion::WORK_RAM_BANKN)] = value;
+        workRAM[echo_address + static_cast<int>(wram_bank) * 4 * KB -
+                kWorkRamN.begin] = value;
         return;
     }
 
-    if (address >= addr(MemoryRegion::VIDEO_RAM) &&
-        address <= addr(MemoryRegion::END_VIDEO_RAM)) {
-        const half offset = address - addr(MemoryRegion::VIDEO_RAM);
-        write_vram(static_cast<byte>(vram_bank), offset, value, false);
+    if (in_region(address, kVideoRam)) {
+        const half offset = address - kVideoRam.begin;
+        write_vram(static_cast<byte>(vram_bank), offset, value, privileged);
         return;
     }
 
-    if (address >= addr(MemoryRegion::OAMaddress) &&
-        address <= addr(MemoryRegion::END_OAM)) {
-        if (lcd_mode == RenderingState::draw ||
-            lcd_mode == RenderingState::OAMscan)
+    if (in_region(address, kOamRange)) {
+        if (!privileged && (lcd_mode == RenderingState::draw ||
+                            lcd_mode == RenderingState::OAMscan)) {
             return;
-        OAM[address - addr(MemoryRegion::OAMaddress)] = value;
+        }
+        OAM[address - kOamRange.begin] = value;
         return;
     }
 
-    if (address >= addr(MemoryRegion::IO_REGISTERS) &&
-        address <= addr(MemoryRegion::END_IO_REGISTERS)) {
+    if (in_region(address, kIoRange)) {
         writeIO(address, value);
         return;
     }
 
-    if (address >= addr(MemoryRegion::HIGH_RAM) &&
-        address <= addr(MemoryRegion::END_HIGH_RAM)) {
-        HRAM[address - addr(MemoryRegion::HIGH_RAM)] = value;
+    if (in_region(address, kHighRam)) {
+        HRAM[address - kHighRam.begin] = value;
         return;
     }
 
-    if (address >= addr(MemoryRegion::EXTERNAL_RAM) &&
-        address <= addr(MemoryRegion::END_EXTERNAL_RAM)) {
+    if (in_region(address, kExternalRam)) {
         if (!RAMenable) {
             return;
         }
         if (is_mbc3_controller(mbc) && rtc_selected_register != 0) {
             byte reg_index = rtc_selected_register - 0x08;
             if (reg_index < 5) {
-                switch (reg_index) {
-                    case 0:
-                        rtc_registers[0] = value & 0x3F;
-                        break;
-                    case 1:
-                        rtc_registers[1] = value & 0x3F;
-                        break;
-                    case 2:
-                        rtc_registers[2] = value & 0x1F;
-                        break;
-                    case 3:
-                        rtc_registers[3] = value;
-                        break;
-                    case 4: {
-                        const byte previous_control = rtc_registers[4];
-                        byte control = static_cast<byte>(previous_control &
-                                                         0x80);  // carry
-                        control |=
-                            static_cast<byte>(value & 0x01);  // Day bit 8
-                        bool new_halt = (value & 0x40) != 0;
-                        if (new_halt) {
-                            control |= 0x40;
-                        } else {
-                            control &= static_cast<byte>(~0x40);
-                        }
-                        if ((value & 0x80) == 0) {
-                            control &= static_cast<byte>(~0x80);
-                        }
-
-                        if (!rtc_halted && new_halt) {
-                            const uint64_t seconds =
-                                host_seconds() > rtc_epoch
-                                    ? host_seconds() - rtc_epoch
-                                    : 0;
-                            encode_rtc_seconds(seconds, true, rtc_registers);
-                        } else if (rtc_halted && !new_halt) {
-                            const uint64_t seconds =
-                                decode_rtc_registers(rtc_registers);
-                            const uint64_t now = host_seconds();
-                            rtc_epoch = now > seconds ? (now - seconds) : now;
-                        }
-
-                        rtc_halted = new_halt;
-                        rtc_registers[4] = control;
-                        break;
-                    }
-                }
-
-                if (!rtc_halted) {
-                    const uint64_t seconds =
-                        decode_rtc_registers(rtc_registers);
-                    const uint64_t now = host_seconds();
-                    rtc_epoch = now > seconds ? (now - seconds) : now;
-                }
+                handle_rtc_register_write(reg_index, value);
             }
             return;
         }
         if (mbc == MemoryBankController::MBC2 ||
             mbc == MemoryBankController::MBC2_BATTERY) {
-            cartRAM[address - addr(MemoryRegion::EXTERNAL_RAM)] =
-                (value & 0x0F) | 0xF0;
+            cartRAM[address - kExternalRam.begin] =
+                static_cast<byte>((value & 0x0F) | 0xF0);
             return;
         }
         cartRAM[address + 8 * KB * static_cast<int>(eram_bank) -
-                addr(MemoryRegion::EXTERNAL_RAM)] = value;
+                kExternalRam.begin] = value;
         return;
     }
 
@@ -706,16 +639,13 @@ void address_bus::write(half address, byte value) {
             writeHuC3(address, value);
             return;
         default:
-            if (debug) {
-                std::ofstream("log.txt", std::ofstream::app)
-                    << "unsupported MBC: " << std::hex << to_underlying(mbc)
-                    << std::endl;
-            }
+#if GBC_BUS_DEBUG
+            std::ofstream("log.txt", std::ofstream::app)
+                << "unsupported MBC: " << std::hex << to_underlying(mbc)
+                << std::endl;
+#endif
             return;
     }
-
-    // throw std::runtime_error(std::string("mbc not valid
-    // ").append(std::to_string(address)));
 }
 
 inline void address_bus::writeIO(half address, byte val) {
@@ -743,87 +673,21 @@ inline void address_bus::writeIO(half address, byte val) {
                 cpu->reset_timer_counter();
             }
             return;
-        case addr(AudioRegister::NR10):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR11):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR12):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR13):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR14):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR21):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR22):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR23):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR24):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR30):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR31):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR32):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR33):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR34):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR41):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR42):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR43):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR44):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR50):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR51):
-            apu->write_register(address, val);
-            return;
-        case addr(AudioRegister::NR52):
-            apu->write_register(address, val);
-            return;
-        case 0xFF30:
-        case 0xFF31:
-        case 0xFF32:
-        case 0xFF33:
-        case 0xFF34:
-        case 0xFF35:
-        case 0xFF36:
-        case 0xFF37:
-        case 0xFF38:
-        case 0xFF39:
-        case 0xFF3a:
-        case 0xFF3b:
-        case 0xFF3c:
-        case 0xFF3d:
-        case 0xFF3e:
-        case 0xFF3f:
-            apu->write_wave_byte(address, val);
-            return;
+        default:
+            break;
+    }
+
+    if (is_audio_register(address)) {
+        apu->write_register(address, val);
+        return;
+    }
+
+    if (is_wave_table_register(address)) {
+        apu->write_wave_byte(address, val);
+        return;
+    }
+
+    switch (address) {
         case addr(VideoRegister::LCDC):  // 0xFF40
             ppu->write_register(address, val);
             return;
@@ -881,37 +745,12 @@ inline void address_bus::writeIO(half address, byte val) {
             }
             return;
         case addr(CGBRegister::HDMA1):
-            hdma_src = static_cast<half>((static_cast<half>(val) << 8) |
-                                         (hdma_src & 0x00FF));
-            return;
         case addr(CGBRegister::HDMA2):
-            hdma_src = static_cast<half>((hdma_src & 0xFF00) | (val & 0xF0));
-            return;
         case addr(CGBRegister::HDMA3):
-            hdma_dst =
-                static_cast<half>(((val & 0x1F) << 8) | (hdma_dst & 0x00FF));
-            return;
         case addr(CGBRegister::HDMA4):
-            hdma_dst = static_cast<half>((hdma_dst & 0xFF00) | (val & 0xF0));
+        case addr(CGBRegister::HDMA5):
+            handle_hdma_register(address, val);
             return;
-        case addr(CGBRegister::HDMA5): {
-            if (!config.cgb_mode) {
-                IOrange[address - addr(MemoryRegion::IO_REGISTERS)] = 0xFF;
-                return;
-            }
-            if ((val & 0x80) == 0) {
-                if (hdma_active && hdma_mode_hblank) {
-                    cancel_hdma();
-                }
-                start_general_hdma(val & 0x7F);
-            } else {
-                if (hdma_active && !hdma_mode_hblank) {
-                    return;
-                }
-                start_hblank_hdma(val & 0x7F);
-            }
-            return;
-        }
         case addr(CGBRegister::RP):
             rp_state = val & 0xC1;
             return;
@@ -972,9 +811,10 @@ inline void address_bus::writeIO(half address, byte val) {
             IOrange[address - addr(MemoryRegion::IO_REGISTERS)] = val;
             return;
         default:
-            debug = 1;
+#if GBC_BUS_DEBUG
             std::ofstream("log.txt", std::ofstream::app)
                 << "unsupported IO write: " << std::hex << address << std::endl;
+#endif
     }
 }
 
@@ -1039,14 +879,7 @@ void address_bus::writeMBC3(half address, byte value) {
     }
 
     if (address >= 0x6000 && address <= 0x7FFF) {
-        if (latch_write == 0x00 && value == 0x01) {
-            uint64_t seconds = rtc_halted ? decode_rtc_registers(rtc_registers)
-                                          : (host_seconds() > rtc_epoch
-                                                 ? host_seconds() - rtc_epoch
-                                                 : 0);
-            encode_rtc_seconds(seconds, rtc_halted, rtc_latched);
-        }
-        latch_write = value;
+        handle_rtc_latch_write(value);
         return;
     }
 }
@@ -1253,6 +1086,120 @@ void address_bus::update_hdma_status_register() {
             ? static_cast<byte>((hdma_blocks_remaining - 1) & 0x7F)
             : 0;
     IOrange[ff55_index] = static_cast<byte>(0x80 | remaining);
+}
+
+byte address_bus::read_joyp_state() const {
+    const byte joyp = IOrange[kJoypIndex];
+    const byte select = static_cast<byte>((joyp >> 4) & 0x03);
+    const byte upper = static_cast<byte>(joyp & 0x30);
+    if (select == 0) {
+        return static_cast<byte>(upper | (input_s & input_d & 0x0F));
+    }
+    if (!isBitSet(joyp, 4)) {
+        return static_cast<byte>(upper | (input_d & 0x0F));
+    }
+    if (!isBitSet(joyp, 5)) {
+        return static_cast<byte>(upper | (input_s & 0x0F));
+    }
+    return 0x3F;
+}
+
+void address_bus::handle_rtc_register_write(byte reg_index, byte value) {
+    switch (reg_index) {
+        case 0:
+            rtc_registers[0] = static_cast<byte>(value & 0x3F);
+            break;
+        case 1:
+            rtc_registers[1] = static_cast<byte>(value & 0x3F);
+            break;
+        case 2:
+            rtc_registers[2] = static_cast<byte>(value & 0x1F);
+            break;
+        case 3:
+            rtc_registers[3] = value;
+            break;
+        case 4: {
+            const byte previous_control = rtc_registers[4];
+            byte control = static_cast<byte>(previous_control & 0x80);
+            control |= static_cast<byte>(value & 0x01);
+            const bool new_halt = (value & 0x40) != 0;
+            if (new_halt) {
+                control = static_cast<byte>(control | 0x40);
+            } else {
+                control = static_cast<byte>(control & static_cast<byte>(~0x40));
+            }
+            if ((value & 0x80) == 0) {
+                control = static_cast<byte>(control & static_cast<byte>(~0x80));
+            }
+
+            if (!rtc_halted && new_halt) {
+                const uint64_t seconds =
+                    host_seconds() > rtc_epoch ? host_seconds() - rtc_epoch : 0;
+                encode_rtc_seconds(seconds, true, rtc_registers);
+            } else if (rtc_halted && !new_halt) {
+                const uint64_t seconds = decode_rtc_registers(rtc_registers);
+                const uint64_t now = host_seconds();
+                rtc_epoch = now > seconds ? (now - seconds) : now;
+            }
+
+            rtc_halted = new_halt;
+            rtc_registers[4] = control;
+            break;
+        }
+    }
+
+    if (!rtc_halted) {
+        const uint64_t seconds = decode_rtc_registers(rtc_registers);
+        const uint64_t now = host_seconds();
+        rtc_epoch = now > seconds ? (now - seconds) : now;
+    }
+}
+
+void address_bus::handle_rtc_latch_write(byte value) {
+    if (latch_write == 0x00 && value == 0x01) {
+        uint64_t seconds =
+            rtc_halted
+                ? decode_rtc_registers(rtc_registers)
+                : (host_seconds() > rtc_epoch ? host_seconds() - rtc_epoch : 0);
+        encode_rtc_seconds(seconds, rtc_halted, rtc_latched);
+    }
+    latch_write = value;
+}
+
+void address_bus::handle_hdma_register(half address, byte value) {
+    switch (address) {
+        case addr(CGBRegister::HDMA1):
+            hdma_src = static_cast<half>((static_cast<half>(value) << 8) |
+                                         (hdma_src & 0x00FF));
+            return;
+        case addr(CGBRegister::HDMA2):
+            hdma_src = static_cast<half>((hdma_src & 0xFF00) | (value & 0xF0));
+            return;
+        case addr(CGBRegister::HDMA3):
+            hdma_dst =
+                static_cast<half>(((value & 0x1F) << 8) | (hdma_dst & 0x00FF));
+            return;
+        case addr(CGBRegister::HDMA4):
+            hdma_dst = static_cast<half>((hdma_dst & 0xFF00) | (value & 0xF0));
+            return;
+        case addr(CGBRegister::HDMA5):
+            if (!config.cgb_mode) {
+                IOrange[address - addr(MemoryRegion::IO_REGISTERS)] = 0xFF;
+                return;
+            }
+            if ((value & 0x80) == 0) {
+                if (hdma_active && hdma_mode_hblank) {
+                    cancel_hdma();
+                }
+                start_general_hdma(value & 0x7F);
+            } else {
+                if (hdma_active && !hdma_mode_hblank) {
+                    return;
+                }
+                start_hblank_hdma(value & 0x7F);
+            }
+            return;
+    }
 }
 
 void address_bus::writeMBC5(half address, byte value) {

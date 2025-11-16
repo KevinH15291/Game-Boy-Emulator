@@ -1,17 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
 project(GBC)
 
-option(ENABLE_EMSCRIPTEN "Build with Emscripten for WebAssembly" OFF)
-
-if(ENABLE_EMSCRIPTEN)
-  set(CMAKE_EXECUTABLE_SUFFIX ".html")
-endif()
 
 if(EMSCRIPTEN)
   set(CMAKE_EXECUTABLE_SUFFIX ".html")
 endif()
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT EMSCRIPTEN)
@@ -41,8 +36,8 @@ if(ENABLE_LTO AND NOT EMSCRIPTEN)
 endif()
 
 if(EMSCRIPTEN)
-    # Use SDL2 port for Emscripten (stable, well-tested)
-    # Don't find native SDL3 - use Emscripten SDL2 port only
+    # SDL2 port is used for Emscripten (stable, well-tested)
+    # native SDL3 is bugged
     # The port provides headers via -sUSE_SDL=2
 else()
 find_package(SDL3 REQUIRED)

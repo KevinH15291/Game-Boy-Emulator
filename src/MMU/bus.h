@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "../CgbConfig.h"
+#include "../DebugMacros.h"
 
 namespace GBC {
 
@@ -122,6 +123,7 @@ class address_bus {
 
     byte read(half address);
     byte read_privileged(half address);
+    void write_privileged(half address, byte value);
     inline byte readIO(half address);
 
     byte check_set(half address, byte value);
@@ -141,7 +143,6 @@ class address_bus {
     void load_RAM(const char *fname, uint32_t size);
 
     void write(half address, byte value);
-    void write_privileged(half address, byte value);
     void writeMBC1(half address, byte value);
     void writeMBC2(half address, byte value);
     void writeMBC3(half address, byte value);
@@ -219,7 +220,6 @@ class address_bus {
 
     bool booting = false;
     bool latched = false;
-    bool debug = false;
 
     class APU *apu = nullptr;
     class PPU *ppu = nullptr;
@@ -241,6 +241,12 @@ class address_bus {
     void complete_hdma_block();
     void cancel_hdma();
     void update_hdma_status_register();
+    byte read_internal(half address, bool privileged);
+    void write_internal(half address, byte value, bool privileged);
+    byte read_joyp_state() const;
+    void handle_rtc_register_write(byte reg_index, byte value);
+    void handle_rtc_latch_write(byte value);
+    void handle_hdma_register(half address, byte value);
 };
 
 }  // namespace GBC

@@ -177,15 +177,21 @@ inline void GBC::handle_input() {
 #ifdef __EMSCRIPTEN__
     byte input_s = 0xF0, input_d = 0xF0;
 
-    if (buttonState[0]) input_s |= 1;
-    if (buttonState[1]) input_s |= (1 << 1);
-    if (buttonState[2]) input_s |= (1 << 2);
-    if (buttonState[3]) input_s |= (1 << 3);
+    const auto set_if_pressed = [](bool pressed, byte bit, byte& target) {
+        if (pressed) {
+            target = setBit(target, bit);
+        }
+    };
 
-    if (buttonState[4]) input_d |= 1;
-    if (buttonState[5]) input_d |= (1 << 1);
-    if (buttonState[6]) input_d |= (1 << 2);
-    if (buttonState[7]) input_d |= (1 << 3);
+    set_if_pressed(buttonState[0], 0, input_s);
+    set_if_pressed(buttonState[1], 1, input_s);
+    set_if_pressed(buttonState[2], 2, input_s);
+    set_if_pressed(buttonState[3], 3, input_s);
+
+    set_if_pressed(buttonState[4], 0, input_d);
+    set_if_pressed(buttonState[5], 1, input_d);
+    set_if_pressed(buttonState[6], 2, input_d);
+    set_if_pressed(buttonState[7], 3, input_d);
 
     if (((input_d & addresses.input_d) ^ input_d) |
         ((input_s & addresses.input_s) ^ input_s)) {
@@ -199,31 +205,22 @@ inline void GBC::handle_input() {
     byte input_s = 0xF0, input_d = 0xF0;
 
     const bool* keyboard_state = SDL_GetKeyboardState(nullptr);
-    if (keyboard_state[SDL_SCANCODE_A]) {
-        input_s |= 1;
-    }
-    if (keyboard_state[SDL_SCANCODE_S]) {
-        input_s |= (1 << 1);
-    }
-    if (keyboard_state[SDL_SCANCODE_Z]) {
-        input_s |= (1 << 2);
-    }
-    if (keyboard_state[SDL_SCANCODE_X]) {
-        input_s |= (1 << 3);
-    }
+    const auto set_if_key_down = [&](SDL_Scancode scancode, byte bit,
+                                     byte& target) {
+        if (keyboard_state[scancode]) {
+            target = setBit(target, bit);
+        }
+    };
 
-    if (keyboard_state[SDL_SCANCODE_RIGHT]) {
-        input_d |= 1;
-    }
-    if (keyboard_state[SDL_SCANCODE_LEFT]) {
-        input_d |= (1 << 1);
-    }
-    if (keyboard_state[SDL_SCANCODE_UP]) {
-        input_d |= (1 << 2);
-    }
-    if (keyboard_state[SDL_SCANCODE_DOWN]) {
-        input_d |= (1 << 3);
-    }
+    set_if_key_down(SDL_SCANCODE_A, 0, input_s);
+    set_if_key_down(SDL_SCANCODE_S, 1, input_s);
+    set_if_key_down(SDL_SCANCODE_Z, 2, input_s);
+    set_if_key_down(SDL_SCANCODE_X, 3, input_s);
+
+    set_if_key_down(SDL_SCANCODE_RIGHT, 0, input_d);
+    set_if_key_down(SDL_SCANCODE_LEFT, 1, input_d);
+    set_if_key_down(SDL_SCANCODE_UP, 2, input_d);
+    set_if_key_down(SDL_SCANCODE_DOWN, 3, input_d);
 
     if (((input_d & addresses.input_d) ^ input_d) |
         ((input_s & addresses.input_s) ^ input_s)) {
@@ -274,13 +271,15 @@ inline void GBC::execute_cycle() {
 }
 
 inline void GBC::debug_execute_cycle(uint32_t freq) {
+    (void)freq;
     execute_cycle();
 
-#ifndef __EMSCRIPTEN__
+#if GBC_CPU_DEBUG && !defined(__EMSCRIPTEN__)
+    static bool debug_active = false;
     if (SDL_GetKeyboardState(nullptr)[SDL_SCANCODE_D]) {
-        debug_flag = 1;
+        debug_active = true;
     }
-    if (debug_flag && cpu.cycles == 0) {
+    if (debug_active && cpu.cycles == 0) {
         dump_stuff();
     }
 #endif
