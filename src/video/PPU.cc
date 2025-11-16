@@ -446,9 +446,15 @@ void PPU::upload_frame_to_texture() {
 
     void* pixels = nullptr;
     int pitch = 0;
+#ifdef __EMSCRIPTEN__
+    if (SDL_LockTexture(texture, nullptr, &pixels, &pitch) != 0) {
+        return;
+    }
+#else
     if (!SDL_LockTexture(texture, nullptr, &pixels, &pitch)) {
         return;
     }
+#endif
     auto* pixel_data = static_cast<byte*>(pixels);
     for (int y = 0; y < static_cast<int>(WINDOW_HEIGHT); ++y) {
         for (int x = 0; x < static_cast<int>(WINDOW_WIDTH); ++x) {
