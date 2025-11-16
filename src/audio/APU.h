@@ -12,6 +12,10 @@
 #include <cstdint>
 #include <fstream>
 
+#include "../CgbConfig.h"
+#include "../bit_ops.h"
+#include "enums.h"
+
 namespace GBC {
 
 class address_bus;
@@ -22,7 +26,7 @@ constexpr size_t AUDIO_BUFFER_SAMPLES = 256;
 
 class APU {
    public:
-    explicit APU(address_bus &memory);
+    explicit APU(address_bus &memory, CgbConfig &config);
     ~APU();
 
     void execute_cycle();
@@ -41,52 +45,55 @@ class APU {
     struct SquareChannel {
         bool enabled = false;
         bool dacEnabled = false;
-        uint8_t duty = 0;
-        uint8_t dutyStep = 0;
-        uint8_t lengthCounter = 0;
+        byte duty = 0;
+        byte dutyStep = 0;
+        byte lengthCounter = 0;
         bool lengthEnabled = false;
+        bool skipNextLengthClock = false;
 
-        uint16_t timer = 0;
+        half timer = 0;
 
-        uint8_t envelopeVolume = 0;
-        uint8_t envelopeInitial = 0;
-        uint8_t envelopePeriod = 0;
-        uint8_t envelopeTimer = 0;
+        byte envelopeVolume = 0;
+        byte envelopeInitial = 0;
+        byte envelopePeriod = 0;
+        byte envelopeTimer = 0;
         bool envelopeIncrease = false;
 
-        uint8_t sweepPeriod = 0;
-        uint8_t sweepTimer = 0;
-        uint8_t sweepShift = 0;
+        byte sweepPeriod = 0;
+        byte sweepTimer = 0;
+        byte sweepShift = 0;
         bool sweepNegate = false;
-        uint16_t shadowFrequency = 0;
+        half shadowFrequency = 0;
         bool sweepEnabled = false;
     };
 
     struct WaveChannel {
         bool enabled = false;
         bool dacEnabled = false;
-        uint16_t lengthCounter = 0;
+        half lengthCounter = 0;
         bool lengthEnabled = false;
+        bool skipNextLengthClock = false;
 
-        uint16_t timer = 0;
-        uint8_t position = 0;
-        uint8_t currentSample = 0;
+        half timer = 0;
+        byte position = 0;
+        byte currentSample = 0;
     };
 
     struct NoiseChannel {
         bool enabled = false;
         bool dacEnabled = false;
-        uint8_t lengthCounter = 0;
+        byte lengthCounter = 0;
         bool lengthEnabled = false;
+        bool skipNextLengthClock = false;
 
-        uint8_t envelopeVolume = 0;
-        uint8_t envelopeInitial = 0;
-        uint8_t envelopePeriod = 0;
-        uint8_t envelopeTimer = 0;
+        byte envelopeVolume = 0;
+        byte envelopeInitial = 0;
+        byte envelopePeriod = 0;
+        byte envelopeTimer = 0;
         bool envelopeIncrease = false;
 
         uint32_t timer = 0;
-        uint16_t lfsr = 0;
+        half lfsr = 0;
     };
 
     void clock_frame_sequencer();
@@ -109,14 +116,16 @@ class APU {
     void power_on();
     void power_off();
     void update_status_bits();
+    void load_boot_defaults();
 
    public:
     void flush_audio();
-    void trigger_channel(uint16_t address);
-    void update_length_enable(uint16_t address);
+    void trigger_channel(half address);
+    void update_length_enable(half address);
     bool masterEnabled = false;
 
     address_bus &memory;
+    CgbConfig &config;
 
     SquareChannel ch1{};
     SquareChannel ch2{};
@@ -124,12 +133,12 @@ class APU {
     NoiseChannel ch4{};
 
     uint32_t frameSequencerCounter = 0;
-    uint8_t frameSequencerStep = 0;
+    byte frameSequencerStep = 0;
 
     // Square channel timing counter (1048576 Hz = every 4 CPU cycles)
-    uint8_t squareClockCounter = 0;
+    byte squareClockCounter = 0;
     // Wave channel timing counter (2097152 Hz = every 2 CPU cycles)
-    uint8_t waveClockCounter = 0;
+    byte waveClockCounter = 0;
 
     uint64_t sampleAccumulator = 0;
     std::array<float, AUDIO_BUFFER_SAMPLES * 2> sampleBuffer{};
@@ -147,36 +156,17 @@ class APU {
     uint32_t exportedSampleCount = 0;
 
    private:
-    uint8_t nr10 = 0;
-    uint8_t nr11 = 0;
-    uint8_t nr12 = 0;
-    uint8_t nr13 = 0;
-    uint8_t nr14 = 0;
-    uint8_t nr21 = 0;
-    uint8_t nr22 = 0;
-    uint8_t nr23 = 0;
-    uint8_t nr24 = 0;
-    uint8_t nr30 = 0;
-    uint8_t nr31 = 0;
-    uint8_t nr32 = 0;
-    uint8_t nr33 = 0;
-    uint8_t nr34 = 0;
-    uint8_t nr41 = 0;
-    uint8_t nr42 = 0;
-    uint8_t nr43 = 0;
-    uint8_t nr44 = 0;
-    uint8_t nr50 = 0;
-    uint8_t nr51 = 0;
-    uint8_t nr52 = 0;
-    std::array<uint8_t, 16> waveRAM{};
+    byte read_reg(AudioRegister reg) const;
+    void write_reg(AudioRegister reg, byte value);
+    std::array<byte, 16> waveRAM{};
 
    public:
-    uint8_t read_register(uint16_t address) const;
-    void write_register(uint16_t address, uint8_t value);
-    uint8_t read_wave_byte(uint16_t address) const;
-    void write_wave_byte(uint16_t address, uint8_t value);
+    byte read_register(half address) const;
+    void write_register(half address, byte value);
+    byte read_wave_byte(half address) const;
+    void write_wave_byte(half address, byte value);
     bool is_wave_active() const;
-    uint8_t get_nr52_status() const;
+    byte get_nr52_status() const;
 
 #ifdef __EMSCRIPTEN__
     SDL_AudioDeviceID audioDevice = 0;

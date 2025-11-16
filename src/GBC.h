@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "CPU/SM83.h"
+#include "CgbConfig.h"
 #include "MMU/bus.h"
 #include "audio/APU.h"
 #include "bus.h"
@@ -17,7 +18,7 @@ using namespace std::chrono_literals;
 
 class GBC {
    public:
-    GBC();
+    explicit GBC(bool enable_window = true);
     void start();
     void run();
     void start_window();
@@ -26,7 +27,15 @@ class GBC {
     inline void debug_execute_cycle(uint32_t freq);
     inline void dump_stuff();
     inline void handle_input();
+    void reset_after_rom_load();
 
+   private:
+    void log_frame_state(uint32_t frame_index);
+
+   public:
+
+    const bool window_enabled_;
+    CgbConfig config{};
     address_bus addresses;
 
     SM83 cpu;
@@ -38,7 +47,7 @@ class GBC {
 
     bool debug_flag = 0;
 #ifdef __EMSCRIPTEN__
-    uint8_t buttonState[8] = {
+    byte buttonState[8] = {
         0};  // 8 buttons: A, B, Select, Start, Right, Left, Up, Down
 #endif
 };

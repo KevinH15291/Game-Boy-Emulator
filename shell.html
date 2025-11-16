@@ -163,7 +163,7 @@
   <body>
     <div id="controls">
       <div id="romInputLabel">
-        <input type="file" id="romInput" accept=".gb,.gbc" />
+      <input type="file" id="romInput" accept=".gb,.gbc" />
         <span class="keybinding">Ctrl+O</span>
       </div>
       <input
@@ -367,7 +367,7 @@
             if (Module.writeArrayToMemory) {
               Module.writeArrayToMemory(data, ptr);
             } else if (Module.HEAPU8) {
-              Module.HEAPU8.set(data, ptr);
+            Module.HEAPU8.set(data, ptr);
             } else if (Module.HEAP8) {
               for (let i = 0; i < data.length; i++) {
                 Module.HEAP8[ptr + i] = data[i];

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <iostream>
 
+#include "bit_ops.h"
 #include "bus.h"
 #include "enums.h"
 
@@ -34,7 +35,6 @@ void PPU::init_window() {
 
 void PPU::init_debug_window() {
 #ifdef __EMSCRIPTEN__
-    // Debug windows disabled for web build
     debug_render = false;
 #else
     if (!debug_render) {
@@ -91,72 +91,6 @@ inline void PPU::update_register_cache() {
     cached_LYC = reg_LYC;
     lyc_match = (lines == cached_LYC);
     cache_dirty = false;
-    update_palette_luts();
-}
-
-inline void PPU::update_palette_luts() {
-    for (int i = 0; i < 4; ++i) {
-        obp_lut[0][i] = (cached_OBP0 >> (i * 2)) & 0x3;
-        obp_lut[1][i] = (cached_OBP1 >> (i * 2)) & 0x3;
-    }
-}
-
-inline void PPU::cache_bg_tile_row(uint8_t tile_index, uint8_t tiley_mod8) {
-    uint16_t cache_key_full =
-        (static_cast<uint16_t>(tile_index) << 3) | (tiley_mod8 & 0x7);
-    uint8_t cache_key = cache_key_full & 0xFF;
-
-    if (bg_tile_cache_valid[cache_key] &&
-        bg_tile_cache_key[cache_key] == cache_key_full) {
-        return;
-    }
-
-    byte data_area = (cached_LCDC & (1 << 4));
-    if (data_area != 0) {
-        bg_tile_row_cache[cache_key][0] = bus->read(
-            tile_index * 16 + tiley_mod8 * 2 + addr(MemoryRegion::VIDEO_RAM));
-        bg_tile_row_cache[cache_key][1] =
-            bus->read(tile_index * 16 + tiley_mod8 * 2 + 1 +
-                      addr(MemoryRegion::VIDEO_RAM));
-        bg_tile_cache_key[cache_key] = cache_key_full;
-        bg_tile_cache_valid[cache_key] = true;
-    } else {
-        bg_tile_row_cache[cache_key][0] =
-            bus->read(tiley_mod8 * 2 + 0x9000 + ((int8_t)tile_index) * 16);
-        bg_tile_row_cache[cache_key][1] =
-            bus->read(tiley_mod8 * 2 + 1 + 0x9000 + ((int8_t)tile_index) * 16);
-        bg_tile_cache_key[cache_key] = cache_key_full;
-        bg_tile_cache_valid[cache_key] = true;
-    }
-}
-
-inline void PPU::cache_window_tile_row(uint8_t tile_index, uint8_t tiley_mod8) {
-    uint16_t cache_key_full =
-        (static_cast<uint16_t>(tile_index) << 3) | (tiley_mod8 & 0x7);
-    uint8_t cache_key = cache_key_full & 0xFF;
-
-    if (window_tile_cache_valid[cache_key] &&
-        window_tile_cache_key[cache_key] == cache_key_full) {
-        return;
-    }
-
-    byte data_area = (cached_LCDC & (1 << 4));
-    if (data_area) {
-        window_tile_row_cache[cache_key][0] = bus->read(
-            tile_index * 16 + tiley_mod8 * 2 + addr(MemoryRegion::VIDEO_RAM));
-        window_tile_row_cache[cache_key][1] =
-            bus->read(tile_index * 16 + tiley_mod8 * 2 + 1 +
-                      addr(MemoryRegion::VIDEO_RAM));
-        window_tile_cache_key[cache_key] = cache_key_full;
-        window_tile_cache_valid[cache_key] = true;
-    } else {
-        window_tile_row_cache[cache_key][0] =
-            bus->read(tiley_mod8 * 2 + 0x9000 + ((int8_t)tile_index) * 16);
-        window_tile_row_cache[cache_key][1] =
-            bus->read(tiley_mod8 * 2 + 1 + 0x9000 + ((int8_t)tile_index) * 16);
-        window_tile_cache_key[cache_key] = cache_key_full;
-        window_tile_cache_valid[cache_key] = true;
-    }
 }
 
 void PPU::execute_cycle() {
@@ -171,22 +105,22 @@ void PPU::execute_cycle() {
         update_register_cache();
     }
 
-    if ((cached_LCDC & 0x80) == 0) {
+    if (!isBitSet(cached_LCDC, 7)) {
         reg_STAT = (reg_STAT & 0xF8) | 0 | (lyc_match << 2);
         return;
     }
     bus->write(addr(IORegister::IF),
-               bus->read(addr(IORegister::IF)) & ~(1 << 1));
-    if (reg_STAT & (1 << 6) && lyc_match)
+               clearBit(bus->read(addr(IORegister::IF)), 1));
+    if (isBitSet(reg_STAT, 6) && lyc_match)
         bus->write(addr(IORegister::IF),
-                   bus->read(addr(IORegister::IF)) | (1 << 1));
+                   setBit(bus->read(addr(IORegister::IF)), 1));
 
     if (lines < 144) {
         if (dots < 80) {
             if (mode != RenderingState::OAMscan) {
                 objnum = 0;
                 mode = RenderingState::OAMscan;
-                byte objsize = (cached_LCDC & (1 << 2)) ? 16 : 8;
+                byte objsize = isBitSet(cached_LCDC, 2) ? 16 : 8;
 
                 for (int16_t i = 0x00; i < 0x9F; i += 4) {
                     byte objy = bus->read_privileged(
@@ -209,9 +143,9 @@ void PPU::execute_cycle() {
                     if (objnum == 10) break;
                 }
                 reg_STAT = (reg_STAT & 0xF8) | 2 | (lyc_match << 2);
-                if (reg_STAT & (1 << 5))
+                if (isBitSet(reg_STAT, 5))
                     bus->write(addr(IORegister::IF),
-                               bus->read(addr(IORegister::IF)) | (1 << 1));
+                               setBit(bus->read(addr(IORegister::IF)), 1));
             }
 
         } else if (dots < 252) {
@@ -219,12 +153,6 @@ void PPU::execute_cycle() {
                 mode = RenderingState::draw;
                 renderX = 0;  // Reset renderX at start of draw phase
                 wlyenabled = false;
-                for (int i = 0; i < 256; ++i) {
-                    bg_tile_cache_valid[i] = false;
-                    bg_tile_cache_key[i] = 0;
-                    window_tile_cache_valid[i] = false;
-                    window_tile_cache_key[i] = 0;
-                }
 #ifndef NDEBUG
                 debug_callback = true;
 #endif
@@ -235,15 +163,18 @@ void PPU::execute_cycle() {
         } else {
             if (mode != RenderingState::hblank) {
                 mode = RenderingState::hblank;
+                if (bus != nullptr) {
+                    bus->handle_hblank_hdma();
+                }
                 renderX = 0;
                 if (wlyenabled) {
                     ++wly;
                 }
                 reg_STAT = (reg_STAT & 0xF8) | 0 | (lyc_match << 2);
 
-                if (reg_STAT & (1 << 3))
+                if (isBitSet(reg_STAT, 3))
                     bus->write(addr(IORegister::IF),
-                               bus->read(addr(IORegister::IF)) | (1 << 1));
+                               setBit(bus->read(addr(IORegister::IF)), 1));
             }
         }
     } else {
@@ -252,17 +183,20 @@ void PPU::execute_cycle() {
             wly = 0;
             bus->write(addr(IORegister::IF),
                        bus->read(addr(IORegister::IF)) | 1);
-            if (texture) {
+            if (texture && renderer) {
                 void* pixels;
                 int pitch;
                 SDL_LockTexture(texture, nullptr, &pixels, &pitch);
-                uint8_t* pixel_data = static_cast<uint8_t*>(pixels);
+                byte* pixel_data = static_cast<byte*>(pixels);
                 for (int y = 0; y < WINDOW_HEIGHT; ++y) {
                     for (int x = 0; x < WINDOW_WIDTH; ++x) {
-                        uint8_t gray = frame[y * WINDOW_WIDTH + x];
-                        pixel_data[y * pitch + x * 3] = gray;
-                        pixel_data[y * pitch + x * 3 + 1] = gray;
-                        pixel_data[y * pitch + x * 3 + 2] = gray;
+                        const uint32_t color = frame_rgb[y * WINDOW_WIDTH + x];
+                        pixel_data[y * pitch + x * 3] =
+                            static_cast<byte>(getBitRange(color, 16, 8));
+                        pixel_data[y * pitch + x * 3 + 1] =
+                            static_cast<byte>(getBitRange(color, 8, 8));
+                        pixel_data[y * pitch + x * 3 + 2] =
+                            static_cast<byte>(getBitRange(color, 0, 8));
                     }
                 }
                 SDL_UnlockTexture(texture);
@@ -272,12 +206,12 @@ void PPU::execute_cycle() {
                 SDL_RenderTexture(renderer, texture, nullptr, nullptr);
 #endif
                 SDL_RenderPresent(renderer);
-            } else {
+            } else if (renderer) {
                 SDL_RenderPresent(renderer);
             }
-            if (reg_STAT & (1 << 4))
+            if (isBitSet(reg_STAT, 4))
                 bus->write(addr(IORegister::IF),
-                           bus->read(addr(IORegister::IF)) | (1 << 1));
+                           setBit(bus->read(addr(IORegister::IF)), 1));
             reg_STAT = (reg_STAT & 0xF8) | 1 | (lyc_match << 2);
         }
     }
@@ -285,223 +219,256 @@ void PPU::execute_cycle() {
     ++dots;
 }
 
-// TODO clean this up, and fix it
 void PPU::draw_pixel() {
-    byte bgenable = cached_LCDC & 1, objenable = cached_LCDC & (1 << 1),
-         windowenable = cached_LCDC & (1 << 5);
+    const bool bg_enabled = isBitSet(cached_LCDC, 0);
+    const bool obj_enabled = isBitSet(cached_LCDC, 1);
+    const bool window_enabled = isBitSet(cached_LCDC, 5);
 
-    byte wx = cached_WX, wy = cached_WY, scx = cached_SCX, scy = cached_SCY;
+    const byte wx = cached_WX;
+    const byte wy = cached_WY;
+    const byte scx = cached_SCX;
+    const byte scy = cached_SCY;
 
-    if (windowenable && bgenable && !wlyenabled &&
-        ((renderX + 1 >= wx) && (lines >= wy))) {
+    const int32_t pipeline_x = renderX >= 6 ? renderX - 6 : 0;
+
+    const byte wx_adjusted = (wx < 7) ? 7 : wx;
+    const int32_t window_trigger_x = wx_adjusted - 7;
+    const bool window_active =
+        window_enabled && (lines >= wy) && (pipeline_x >= window_trigger_x);
+
+    if (window_active && !wlyenabled) {
         wlyenabled = true;
     }
 
-    half bg_tilex = (scx + renderX - 6) % 256, bg_tiley = (scy + lines) % 256,
-         window_tilex = renderX - wx + 1, window_tiley = wly;
-
-    byte objpal = objFIFO(), objpix = 0,
-         winpal = windowFIFO(window_tilex, window_tiley),
-         bgpal = bgFIFO(bg_tilex, bg_tiley), winbgpal = 0, winbgpix = 0,
-         pixel = 0, choice = 0;
-
-    if (bgenable) {
-        if (windowenable && ((renderX + 1 >= wx) && (lines >= wy))) {
-            winbgpal = winpal;
-        } else {
-            winbgpal = bgpal;
-        }
-    } else {
-        winbgpal = 0;
+    const byte bg_tilex =
+        static_cast<byte>((static_cast<int32_t>(scx) + pipeline_x) & 0xFF);
+    const byte bg_tiley =
+        static_cast<byte>((static_cast<int32_t>(scy) + lines) & 0xFF);
+    byte window_tilex = 0;
+    byte window_tiley = wly;
+    if (window_active) {
+        const int32_t relative_x = pipeline_x - window_trigger_x;
+        window_tilex = static_cast<byte>(relative_x & 0xFF);
     }
 
-    objpix = obp_lut[(objpal >> 4) & 1][objpal & 0x3];
-    winbgpix = (cached_BGP >> (winbgpal * 2)) & 0x3;
+    BgPixel bg_pixel{};
+    if (bg_enabled) {
+        bg_pixel = window_active
+                       ? sample_window_pixel(window_tilex, window_tiley)
+                       : sample_bg_pixel(bg_tilex, bg_tiley);
+    }
 
-    if (objenable) {
-        bool has_sprite = (objpal != (1 << 5));
-        bool sprite_transparent = ((objpal & 0x3) == 0);
-        bool sprite_priority = ((objpal & 0x80) != 0);
-        bool bg_color_zero = (winbgpal == 0);
+    ObjPixel obj_pixel{};
+    if (obj_enabled) {
+        obj_pixel = sample_object_pixel();
+    }
 
-        if (!has_sprite || sprite_transparent) {
-            pixel = winbgpix;
-        } else if (!bgenable) {
-            pixel = objpix;
-        } else if (sprite_priority && !bg_color_zero) {
-            pixel = winbgpix;
+    uint32_t final_color = bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
+    const bool sprite_visible = obj_pixel.has_pixel && obj_pixel.color != 0;
+    const bool bg_has_color = bg_pixel.color != 0;
+    const bool bg_priority = bg_pixel.priority || bus->bg_priority_over_obj();
+
+    if (obj_enabled && sprite_visible) {
+        if (!bg_enabled || !bg_has_color) {
+            final_color =
+                bus->get_obj_color(obj_pixel.palette, obj_pixel.color);
+        } else if (obj_pixel.priority && bg_has_color) {
+            final_color = bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
+        } else if (bg_priority && bg_has_color) {
+            final_color = bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
         } else {
-            pixel = objpix;
+            final_color =
+                bus->get_obj_color(obj_pixel.palette, obj_pixel.color);
         }
-    } else {
-        pixel = winbgpix;
     }
 
     if (debug_render) {
-        uint8_t objpal_color = obp_lut[(objpal >> 4) & 1][objpal & 0x3];
-        SDL_SetRenderDrawColor(debug_object_renderer, palette_lut[objpal_color],
-                               palette_lut[objpal_color],
-                               palette_lut[objpal_color], 255);
+        const uint32_t obj_color_rgb =
+            bus->get_obj_color(obj_pixel.palette, obj_pixel.color);
+        SDL_SetRenderDrawColor(
+            debug_object_renderer,
+            static_cast<byte>(getBitRange(obj_color_rgb, 16, 8)),
+            static_cast<byte>(getBitRange(obj_color_rgb, 8, 8)),
+            static_cast<byte>(getBitRange(obj_color_rgb, 0, 8)), 255);
 #ifdef __EMSCRIPTEN__
-        SDL_RenderDrawPoint(debug_object_renderer, renderX - 6, lines);
+        SDL_RenderDrawPoint(debug_object_renderer, pipeline_x, lines);
 #else
-        SDL_RenderPoint(debug_object_renderer, renderX - 6, lines);
+        SDL_RenderPoint(debug_object_renderer, pipeline_x, lines);
 #endif
 
-        uint8_t winpal_color = (cached_BGP >> (winpal * 2)) & 0x3;
-        SDL_SetRenderDrawColor(debug_window_renderer, palette_lut[winpal_color],
-                               palette_lut[winpal_color],
-                               palette_lut[winpal_color], 255);
+        const uint32_t bg_color_rgb =
+            bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
+        SDL_SetRenderDrawColor(
+            debug_window_renderer,
+            static_cast<byte>(getBitRange(bg_color_rgb, 16, 8)),
+            static_cast<byte>(getBitRange(bg_color_rgb, 8, 8)),
+            static_cast<byte>(getBitRange(bg_color_rgb, 0, 8)), 255);
 #ifdef __EMSCRIPTEN__
-        SDL_RenderDrawPoint(debug_window_renderer, renderX - 6, lines);
+        SDL_RenderDrawPoint(debug_window_renderer, pipeline_x, lines);
 #else
-        SDL_RenderPoint(debug_window_renderer, renderX - 6, lines);
+        SDL_RenderPoint(debug_window_renderer, pipeline_x, lines);
 #endif
     }
 
-    // Game Boy has a 6-pixel pipeline delay, so renderX starts at 0 but first
-    // visible pixel is at renderX=6 We write pixels starting from renderX=6
-    // (which maps to x=0 on screen)
-    int32_t screen_x = renderX - 6;
+    const int32_t screen_x = pipeline_x;
     if (screen_x >= 0 && screen_x < static_cast<int32_t>(WINDOW_WIDTH) &&
         lines < WINDOW_HEIGHT) {
-        uint32_t frame_index = lines * WINDOW_WIDTH + screen_x;
-        if (frame_index < WINDOW_WIDTH * WINDOW_HEIGHT) {
-            frame[frame_index] = palette_lut[pixel];
+        const uint32_t frame_index =
+            static_cast<uint32_t>(lines) * WINDOW_WIDTH + screen_x;
+        if (frame_index < frame_rgb.size()) {
+            frame_rgb[frame_index] = final_color;
         }
     }
     ++renderX;
 }
 
-// TODO fix issues
-inline byte PPU::objFIFO() {
-    byte tilei = 255;
-    byte objsize = (cached_LCDC & (1 << 2)) ? 16 : 8;
+inline PPU::ObjPixel PPU::sample_object_pixel() {
+    ObjPixel result{};
+    const byte objsize = isBitSet(cached_LCDC, 2) ? 16 : 8;
 
-    uint8_t tilex = 0;
-
-    for (int i = 0; i < (int)objnum; ++i) {
-        obj cand_tile = objbuffer[i];
-
-        if (cand_tile.objx - 2 <= renderX && cand_tile.objx + 6 > renderX) {
-            byte objy = cand_tile.objy, objx = cand_tile.objx - 2,
-                 flags = cand_tile.flags, index = cand_tile.index;
-
-            if (objsize == 16) {
-                index = (index & 0xFE);
-            }
-
-            byte palette = flags & (1 << 4), Xflip = flags & (1 << 5),
-                 Yflip = flags & (1 << 6), prio = flags & (1 << 7);
-
-            half tile_address = addr(MemoryRegion::VIDEO_RAM) + index * 16 +
-                                (Yflip ? (objsize - 1 - (lines - objy)) * 2
-                                       : (lines - objy) * 2);
-
-            byte tilelow = bus->read(tile_address),
-                 tilehigh = bus->read(tile_address + 1);
-
-            byte object_pixel =
-                (((1 << (Xflip ? (renderX - objx) : 7 - (renderX - objx))) &
-                  tilelow) != 0) |
-                ((((1 << (Xflip ? (renderX - objx) : 7 - (renderX - objx))) &
-                   tilehigh) != 0)
-                 << 1);
-
-            if (object_pixel != 0) {
-                byte object_pixel_with_flags = object_pixel | prio | palette;
-                return object_pixel_with_flags;
-            }
+    for (int i = 0; i < static_cast<int>(objnum); ++i) {
+        const obj sprite = objbuffer[i];
+        const int sprite_x = sprite.objx - 2;
+        const int sprite_right = sprite.objx + 6;
+        if (sprite_x > renderX || sprite_right <= renderX) {
+            continue;
         }
+
+        byte tile_index = sprite.index;
+        if (objsize == 16) {
+            tile_index &= 0xFE;
+        }
+
+        const byte flags = sprite.flags;
+        const bool yflip = isBitSet(flags, 6);
+        const bool xflip = isBitSet(flags, 5);
+        const bool sprite_priority = isBitSet(flags, 7);
+        const byte palette = config.cgb_mode ? getBitRange(flags, 0, 3)
+                                             : (isBitSet(flags, 4) ? 1 : 0);
+        const byte tile_bank = (config.cgb_mode && isBitSet(flags, 3)) ? 1 : 0;
+
+        int line = static_cast<int>(lines) - sprite.objy;
+        if (line < 0 || line >= objsize) {
+            continue;
+        }
+        byte row = static_cast<byte>(line);
+        if (yflip) {
+            row = static_cast<byte>(objsize - 1 - row);
+        }
+        if (objsize == 16 && row >= 8) {
+            row -= 8;
+            tile_index = static_cast<byte>(tile_index + 1);
+        }
+
+        const auto [tilelow, tilehigh] =
+            fetch_tile_row(tile_index, row, true, tile_bank);
+        byte bit_index = xflip ? static_cast<byte>(renderX - sprite_x)
+                               : static_cast<byte>(7 - (renderX - sprite_x));
+        bit_index &= 0x7;
+        const byte mask = static_cast<byte>(1u << bit_index);
+        const byte color =
+            ((tilelow & mask) ? 1 : 0) | ((tilehigh & mask) ? 2 : 0);
+        if (color == 0) {
+            continue;
+        }
+
+        result.color = color;
+        result.palette = palette;
+        result.priority = sprite_priority;
+        result.has_pixel = true;
+        return result;
     }
 
-    return (1 << 5);
+    return result;
 }
 
-inline byte PPU::bgFIFO(half tilex, half tiley) {
-    byte bgenable = cached_LCDC & 1;
-
-    half BG_tile_map = (cached_LCDC & (1 << 3)) ? 0x9C00 : 0x9800;
-    byte data_area = (cached_LCDC & (1 << 4));
-
-    half tile_index_index =
-        ((tilex / 8) & 31) + (((tiley / 8) & 31) * 32) + BG_tile_map;
-
-    byte tile_index = bus->read(tile_index_index);
-
-    uint8_t tiley_mod8 = tiley & 7;
-    uint8_t tilex_mod8 = tilex & 7;
-
-    cache_bg_tile_row(tile_index, tiley_mod8);
-    uint16_t cache_key_full =
-        (static_cast<uint16_t>(tile_index) << 3) | tiley_mod8;
-    uint8_t cache_key = cache_key_full & 0xFF;
-
-    byte tilelow, tilehigh;
-    if (bg_tile_cache_valid[cache_key] &&
-        bg_tile_cache_key[cache_key] == cache_key_full) {
-        tilelow = bg_tile_row_cache[cache_key][0];
-        tilehigh = bg_tile_row_cache[cache_key][1];
-    } else {
-        byte data_area = (cached_LCDC & (1 << 4));
-        if (data_area != 0) {
-            tilelow = bus->read(tile_index * 16 + tiley_mod8 * 2 +
-                                addr(MemoryRegion::VIDEO_RAM));
-            tilehigh = bus->read(tile_index * 16 + tiley_mod8 * 2 + 1 +
-                                 addr(MemoryRegion::VIDEO_RAM));
-        } else {
-            tilelow =
-                bus->read(tiley_mod8 * 2 + 0x9000 + ((int8_t)tile_index) * 16);
-            tilehigh = bus->read(tiley_mod8 * 2 + 1 + 0x9000 +
-                                 ((int8_t)tile_index) * 16);
-        }
+inline PPU::BgPixel PPU::sample_bg_pixel(half tilex, half tiley) {
+    const half BG_tile_map = isBitSet(cached_LCDC, 3) ? 0x9C00 : 0x9800;
+    const bool unsigned_table = isBitSet(cached_LCDC, 4);
+    const half tile_index_addr = static_cast<half>(
+        ((tilex / 8) & 31) + (((tiley / 8) & 31) * 32) + BG_tile_map);
+    const half offset =
+        static_cast<half>(tile_index_addr - addr(MemoryRegion::VIDEO_RAM));
+    const byte tile_index = bus->read_vram(0, offset, true);
+    byte attributes = 0;
+    if (config.cgb_mode) {
+        attributes = bus->read_vram(1, offset, true);
     }
 
-    byte final_pixel = (((1 << (7 - tilex_mod8)) & tilelow) != 0) |
-                       ((((1 << (7 - tilex_mod8)) & tilehigh) != 0) << 1);
-    return final_pixel;
+    const byte tile_bank = (config.cgb_mode && isBitSet(attributes, 3)) ? 1 : 0;
+    byte row = tiley & 0x07;
+    if (config.cgb_mode && isBitSet(attributes, 5)) {
+        row = static_cast<byte>(7 - row);
+    }
+    const auto [tilelow, tilehigh] =
+        fetch_tile_row(tile_index, row, unsigned_table, tile_bank);
+
+    byte bit_index = 7 - (tilex & 0x07);
+    if (config.cgb_mode && isBitSet(attributes, 4)) {
+        bit_index = tilex & 0x07;
+    }
+    const byte mask = static_cast<byte>(1u << bit_index);
+    const byte color = ((tilelow & mask) ? 1 : 0) | ((tilehigh & mask) ? 2 : 0);
+
+    BgPixel pixel{};
+    pixel.color = color;
+    pixel.palette = config.cgb_mode ? getBitRange(attributes, 0, 3) : 0;
+    pixel.priority = config.cgb_mode && isBitSet(attributes, 6);
+    return pixel;
 }
 
-inline byte PPU::windowFIFO(half tilex, half tiley) {
-    half w_tile_map = (cached_LCDC & (1 << 6)) ? 0x9C00 : 0x9800;
-    byte data_area = (cached_LCDC & (1 << 4));
-
-    half tile_index_index = ((tilex / 8) & 31) + (((tiley / 8) & 31) * 32);
-
-    byte tile_index = bus->read(tile_index_index + w_tile_map);
-
-    uint8_t tiley_mod8 = tiley & 7;
-    uint8_t tilex_mod8 = tilex & 7;
-
-    cache_window_tile_row(tile_index, tiley_mod8);
-    uint16_t cache_key_full =
-        (static_cast<uint16_t>(tile_index) << 3) | tiley_mod8;
-    uint8_t cache_key = cache_key_full & 0xFF;
-
-    byte tilelow, tilehigh;
-    if (window_tile_cache_valid[cache_key] &&
-        window_tile_cache_key[cache_key] == cache_key_full) {
-        tilelow = window_tile_row_cache[cache_key][0];
-        tilehigh = window_tile_row_cache[cache_key][1];
-    } else {
-        byte data_area = (cached_LCDC & (1 << 4));
-        if (data_area) {
-            tilelow = bus->read(tile_index * 16 + tiley_mod8 * 2 +
-                                addr(MemoryRegion::VIDEO_RAM));
-            tilehigh = bus->read(tile_index * 16 + tiley_mod8 * 2 + 1 +
-                                 addr(MemoryRegion::VIDEO_RAM));
-        } else {
-            tilelow =
-                bus->read(tiley_mod8 * 2 + 0x9000 + ((int8_t)tile_index) * 16);
-            tilehigh = bus->read(tiley_mod8 * 2 + 1 + 0x9000 +
-                                 ((int8_t)tile_index) * 16);
-        }
+inline PPU::BgPixel PPU::sample_window_pixel(half tilex, half tiley) {
+    const half window_tile_map = isBitSet(cached_LCDC, 6) ? 0x9C00 : 0x9800;
+    const bool unsigned_table = isBitSet(cached_LCDC, 4);
+    const half tile_index_addr = static_cast<half>(
+        ((tilex / 8) & 31) + (((tiley / 8) & 31) * 32) + window_tile_map);
+    const half offset =
+        static_cast<half>(tile_index_addr - addr(MemoryRegion::VIDEO_RAM));
+    const byte tile_index = bus->read_vram(0, offset, true);
+    byte attributes = 0;
+    if (config.cgb_mode) {
+        attributes = bus->read_vram(1, offset, true);
     }
 
-    byte final_pixel = (((1 << (7 - tilex_mod8)) & tilelow) != 0) |
-                       ((((1 << (7 - tilex_mod8)) & tilehigh) != 0) << 1);
+    const byte tile_bank = (config.cgb_mode && isBitSet(attributes, 3)) ? 1 : 0;
+    byte row = tiley & 0x07;
+    if (config.cgb_mode && isBitSet(attributes, 5)) {
+        row = static_cast<byte>(7 - row);
+    }
+    const auto [tilelow, tilehigh] =
+        fetch_tile_row(tile_index, row, unsigned_table, tile_bank);
 
-    return final_pixel;
+    byte bit_index = 7 - (tilex & 0x07);
+    if (config.cgb_mode && isBitSet(attributes, 4)) {
+        bit_index = tilex & 0x07;
+    }
+    const byte mask = static_cast<byte>(1u << bit_index);
+    const byte color = ((tilelow & mask) ? 1 : 0) | ((tilehigh & mask) ? 2 : 0);
+
+    BgPixel pixel{};
+    pixel.color = color;
+    pixel.palette = config.cgb_mode ? getBitRange(attributes, 0, 3) : 0;
+    pixel.priority = config.cgb_mode && isBitSet(attributes, 6);
+    return pixel;
+}
+
+std::pair<byte, byte> PPU::fetch_tile_row(
+    byte tile_index, byte row, bool unsigned_index, byte bank) const {
+    half address = 0;
+    if (unsigned_index) {
+        address = addr(MemoryRegion::VIDEO_RAM) + tile_index * 16 + row * 2;
+    } else {
+        address = static_cast<half>(
+            0x9000 +
+            static_cast<int16_t>(static_cast<int8_t>(tile_index)) * 16 +
+            row * 2);
+    }
+    const half offset =
+        static_cast<half>(address - addr(MemoryRegion::VIDEO_RAM));
+    const byte tilelow = bus->read_vram(bank, offset, true);
+    const byte tilehigh =
+        bus->read_vram(bank, static_cast<half>((offset + 1) & 0x1FFF), true);
+    return {tilelow, tilehigh};
 }
 
 void PPU::render_debug() {
@@ -512,11 +479,14 @@ void PPU::render_debug() {
     for (int i = 0; i < 256; ++i) {
         for (int j = 0; j < 256; ++j) {
             half bg_tilex = (scx + i - 6) % 256, bg_tiley = (scy + j) % 256;
-            int temp = bgFIFO(bg_tilex, bg_tiley);
-            uint8_t temp_color = (cached_BGP >> (temp * 2)) & 0x3;
-            SDL_SetRenderDrawColor(debug_bg_renderer, palette_lut[temp_color],
-                                   palette_lut[temp_color],
-                                   palette_lut[temp_color], 255);
+            const BgPixel pixel = sample_bg_pixel(bg_tilex, bg_tiley);
+            const uint32_t color =
+                bus->get_bg_color(pixel.palette, pixel.color);
+            SDL_SetRenderDrawColor(debug_bg_renderer,
+                                   static_cast<byte>(getBitRange(color, 16, 8)),
+                                   static_cast<byte>(getBitRange(color, 8, 8)),
+                                   static_cast<byte>(getBitRange(color, 0, 8)),
+                                   255);
 #ifdef __EMSCRIPTEN__
             SDL_RenderDrawPoint(debug_bg_renderer, i, j);
 #else
@@ -559,7 +529,7 @@ void PPU::dump_vram() {
     }
 }
 
-uint8_t PPU::read_register(uint16_t address) const {
+byte PPU::read_register(half address) const {
     switch (address) {
         case addr(VideoRegister::LCDC):
             return reg_LCDC;
@@ -588,7 +558,7 @@ uint8_t PPU::read_register(uint16_t address) const {
     }
 }
 
-void PPU::write_register(uint16_t address, uint8_t value) {
+void PPU::write_register(half address, byte value) {
     switch (address) {
         case addr(VideoRegister::LCDC):
             reg_LCDC = value;

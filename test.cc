@@ -19,15 +19,7 @@ int upload_rom(uint8_t* data, size_t length) {
     try {
         g_gbc->addresses.load_ROM_buffer(data, length);
         g_gbc->addresses.set_boot_complete(true);
-        g_gbc->cpu.RA = 0x01;
-        g_gbc->cpu.RB = 0xFF;
-        g_gbc->cpu.RC = 0x13;
-        g_gbc->cpu.RD = 0x00;
-        g_gbc->cpu.RE = 0xC1;
-        g_gbc->cpu.RH = 0x84;
-        g_gbc->cpu.RL = 0x03;
-        g_gbc->cpu.pc = 0x100;
-        g_gbc->cpu.sp = 0xFFFE;
+        g_gbc->reset_after_rom_load();
         return 1;
     } catch (...) {
         return 0;
@@ -90,22 +82,34 @@ void emscripten_frame_loop(void* arg) {
 
 int main(int argc, char* argv[]) {
     bool exportAudio = false;
+    bool headless = false;
+    int maxFrames = 0;
+    std::string rom_path;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--export-audio" || arg == "-e") {
             exportAudio = true;
+        } else if (arg == "--headless") {
+            headless = true;
+        } else if (arg == "--frames" && i + 1 < argc) {
+            maxFrames = std::stoi(argv[++i]);
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: " << argv[0] << " [options] [rom_path]\n"
                       << "Options:\n"
                       << "  --export-audio, -e    Export individual audio "
                          "channels to WAV files\n"
+                      << "  --headless            Skip SDL window creation\n"
+                      << "  --frames <n>          Frames to run in headless "
+                         "mode (default 60)\n"
                       << "  --help, -h            Show this help message\n";
             return 0;
+        } else if (!arg.empty() && arg[0] != '-') {
+            rom_path = arg;
         }
     }
 
-    GBC::GBC gbc;
+    GBC::GBC gbc(!headless);
     g_gbc = &gbc;
 
     if (exportAudio) {
@@ -116,14 +120,17 @@ int main(int argc, char* argv[]) {
     emscripten_set_main_loop_arg(emscripten_frame_loop, &gbc, 0, 1);
     return 0;
 #else
-    std::string path;
-    if (argc > 1 && argv[argc - 1][0] != '-') {
-        path = argv[argc - 1];
-    } else {
+    std::string path = rom_path;
+    if (headless && path.empty()) {
+        std::cerr << "Headless mode requires a ROM path argument.\n";
+        return 1;
+    }
+    if (path.empty()) {
         std::cout << "enter path to rom: " << '\n';
         std::cin >> path;
     }
-    gbc.addresses.load_ROM(path.c_str(), GBC::KB * GBC::KB);
+    gbc.addresses.load_ROM(path.c_str());
+    gbc.reset_after_rom_load();
     // std::string savepath =
     //     std::string("cartRAMdump_").append(path.c_str()).append("(save).bin");
     // if (std::filesystem::exists("cartRAMdump(save).bin")) {
@@ -134,6 +141,13 @@ int main(int argc, char* argv[]) {
     //     }
     //     fclose(fp);
     // }
+    if (headless) {
+        const int frames_to_run = maxFrames > 0 ? maxFrames : 60;
+        for (int frame = 0; frame < frames_to_run; ++frame) {
+            gbc.execute_frame();
+        }
+        return 0;
+    }
     gbc.run();
     return 0;
 #endif
