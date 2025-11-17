@@ -47,7 +47,7 @@ include_directories(src src/CPU src/MMU src/video src/audio)
 
 # Source files
 set(SOURCES
-    test.cc
+    main.cc
     src/GBC.cc
     src/CPU/SM83.cc
     src/MMU/bus.cc
@@ -66,8 +66,9 @@ if(EMSCRIPTEN)
         -sSTACK_SIZE=16777216
         -sMODULARIZE=1
         -sEXPORT_ES6=1
+        -sEXIT_RUNTIME=1
         -sEXPORT_NAME=createGBCModule
-        -sEXPORTED_FUNCTIONS=_main,_upload_rom,_set_button_state,_set_channel_muted,_is_channel_muted,_set_master_volume,_get_master_volume,_get_frame_count,_get_cart_ram_ptr,_get_cart_ram_size,_import_save,_malloc,_free
+        -sEXPORTED_FUNCTIONS=_main,_upload_rom,_set_button_state,_set_channel_muted,_is_channel_muted,_set_master_volume,_get_master_volume,_get_frame_count,_get_cart_ram_ptr,_get_cart_ram_size,_import_save,_shutdown_emulator,_malloc,_free
         -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,writeArrayToMemory,HEAPU8,HEAP8
     )
 else()

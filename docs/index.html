@@ -367,6 +367,15 @@
       window.addEventListener("keydown", (event) => updateKey(event, true));
       window.addEventListener("keyup", (event) => updateKey(event, false));
 
+      const shutdownRuntime = () => {
+        if (runtimeReady && gbcModule?._shutdown_emulator) {
+          gbcModule._shutdown_emulator();
+          runtimeReady = false;
+        }
+      };
+
+      window.addEventListener("beforeunload", shutdownRuntime);
+
       const adjustVolume = (delta) => {
         if (!volumeSlider) return;
         const next = Math.max(

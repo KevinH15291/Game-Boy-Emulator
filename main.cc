@@ -1,11 +1,11 @@
 #include <cstddef>
 #include <cstdio>
-#include <filesystem>
-#include <iostream>
 #include <string>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#else
+#include <iostream>
 #endif
 
 #include "GBC.h"
@@ -77,9 +77,22 @@ void emscripten_frame_loop(void* arg) {
     GBC::GBC* gbc = static_cast<GBC::GBC*>(arg);
     gbc->execute_frame();
 }
+
+void shutdown_emulator() {
+    emscripten_cancel_main_loop();
+    emscripten_force_exit(0);
+}
 }
 #endif
 
+#ifdef __EMSCRIPTEN__
+int main(int /*argc*/, char*[] /*argv*/) {
+    GBC::GBC gbc(true);
+    g_gbc = &gbc;
+    emscripten_set_main_loop_arg(emscripten_frame_loop, &gbc, 0, 1);
+    return 0;
+}
+#else
 int main(int argc, char* argv[]) {
     bool exportAudio = false;
     bool headless = false;
@@ -116,10 +129,6 @@ int main(int argc, char* argv[]) {
         gbc.apu.enable_audio_export(true);
     }
 
-#ifdef __EMSCRIPTEN__
-    emscripten_set_main_loop_arg(emscripten_frame_loop, &gbc, 0, 1);
-    return 0;
-#else
     std::string path = rom_path;
     if (headless && path.empty()) {
         std::cerr << "Headless mode requires a ROM path argument.\n";
@@ -131,16 +140,6 @@ int main(int argc, char* argv[]) {
     }
     gbc.addresses.load_ROM(path.c_str());
     gbc.reset_after_rom_load();
-    // std::string savepath =
-    //     std::string("cartRAMdump_").append(path.c_str()).append("(save).bin");
-    // if (std::filesystem::exists("cartRAMdump(save).bin")) {
-    //     FILE *fp = fopen("cartRAMdump(save).bin", "r");
-    //     for (int i = 0; i < 32 * GBC::KB; ++i) {
-    //         if (feof(fp) == EOF) break;
-    //         gbc.addresses.get_cartRAM()[i] = fgetc(fp);
-    //     }
-    //     fclose(fp);
-    // }
     if (headless) {
         const int frames_to_run = maxFrames > 0 ? maxFrames : 60;
         for (int frame = 0; frame < frames_to_run; ++frame) {
@@ -150,5 +149,5 @@ int main(int argc, char* argv[]) {
     }
     gbc.run();
     return 0;
-#endif
 }
+#endif
