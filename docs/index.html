@@ -163,7 +163,7 @@
   <body>
     <div id="controls">
       <div id="romInputLabel">
-      <input type="file" id="romInput" accept=".gb,.gbc" />
+        <input type="file" id="romInput" accept=".gb,.gbc" />
         <span class="keybinding">Ctrl+O</span>
       </div>
       <input
@@ -225,127 +225,193 @@
       <div><span class="action">Down</span><span class="key">↓</span></div>
     </div>
     <canvas id="canvas"></canvas>
-    <script>
+    <script type="module">
+      import createGBCModule from "./GBC.js";
+
+      const canvas = document.getElementById("canvas");
       const statusEl = document.getElementById("status");
       const fpsEl = document.getElementById("fpsCounter");
+      const romInput = document.getElementById("romInput");
+      const saveInput = document.getElementById("saveInput");
+      const importSaveBtn = document.getElementById("importSaveBtn");
+      const exportSaveBtn = document.getElementById("exportSaveBtn");
+      const channelCheckboxes = Array.from(
+        document.querySelectorAll("#channelToggles input")
+      );
+      const volumeSlider = document.getElementById("volumeSlider");
+      const volumeLabel = document.getElementById("volumeLabel");
+
       let runtimeReady = false;
+      let gbcModule = null;
       let lastFrameCount = 0;
-      let lastFpsUpdate = 0;
-      var Module = typeof Module !== "undefined" ? Module : {};
-      Module.canvas = document.getElementById("canvas");
-      Module.onRuntimeInitialized = function () {
-        runtimeReady = true;
-        statusEl.textContent = "Ready";
-        console.log("Runtime initialized");
-        console.log("Module.HEAPU8 available:", !!Module.HEAPU8);
-        console.log("Module._malloc available:", !!Module._malloc);
-        console.log("Module._upload_rom available:", !!Module._upload_rom);
-        if (Module._is_channel_muted) {
-          document.querySelectorAll("#channelToggles input").forEach((el) => {
-            const channel = parseInt(el.dataset.channel, 10);
-            el.checked = Module._is_channel_muted(channel) === 0 ? true : false;
-          });
-        }
-        lastFpsUpdate = performance.now();
-        updateFPS();
-        if (Module._get_master_volume) {
-          const volume = Module._get_master_volume();
-          const volumeSlider = document.getElementById("volumeSlider");
-          const volumeLabel = document.getElementById("volumeLabel");
-          if (volumeSlider && volumeLabel) {
-            volumeSlider.value = Math.round(volume * 100);
-            volumeLabel.textContent = Math.round(volume * 100) + "%";
-          }
-        }
-      };
-
-      function updateFPS() {
-        if (!runtimeReady || !Module._get_frame_count) {
-          requestAnimationFrame(updateFPS);
-          return;
-        }
-        const now = performance.now();
-        const currentFrameCount = Module._get_frame_count();
-        const elapsed = now - lastFpsUpdate;
-
-        if (elapsed >= 1000) {
-          const fps = ((currentFrameCount - lastFrameCount) * 1000) / elapsed;
-          fpsEl.textContent = `FPS: ${fps.toFixed(1)}`;
-          lastFrameCount = currentFrameCount;
-          lastFpsUpdate = now;
-        }
-
-        requestAnimationFrame(updateFPS);
-      }
+      let lastFpsUpdate = performance.now();
 
       const KEY_MAP = {
         KeyX: { button: 0, pressed: false },
         KeyZ: { button: 1, pressed: false },
-        Slash: { button: 2, pressed: false }, // Select
-        Enter: { button: 3, pressed: false }, // Start
+        Slash: { button: 2, pressed: false },
+        Enter: { button: 3, pressed: false },
         ArrowRight: { button: 4, pressed: false },
         ArrowLeft: { button: 5, pressed: false },
         ArrowUp: { button: 6, pressed: false },
         ArrowDown: { button: 7, pressed: false },
       };
 
-      function updateKey(event, isPressed) {
-        const entry = KEY_MAP[event.code];
-        if (!entry || !runtimeReady) return;
-        if (entry.pressed === isPressed) return;
-        entry.pressed = isPressed;
-        if (Module._set_button_state) {
-          Module._set_button_state(entry.button, isPressed ? 1 : 0);
+      const initModule = async () => {
+        try {
+          gbcModule = await createGBCModule({ canvas });
+          runtimeReady = true;
+          handleRuntimeReady();
+        } catch (error) {
+          console.error("Failed to initialize GBC module", error);
+          statusEl.textContent = "Initialization failed";
         }
+      };
+
+      const handleRuntimeReady = () => {
+        statusEl.textContent = "Ready";
+        syncChannelToggles();
+        syncVolumeUI();
+        lastFpsUpdate = performance.now();
+      };
+
+      const syncChannelToggles = () => {
+        if (!gbcModule?._is_channel_muted) return;
+        channelCheckboxes.forEach((checkbox) => {
+          const channel = Number(checkbox.dataset.channel);
+          checkbox.checked = gbcModule._is_channel_muted(channel) === 0;
+        });
+      };
+
+      const syncVolumeUI = () => {
+        if (!volumeSlider || !volumeLabel || !gbcModule?._get_master_volume) {
+          return;
+        }
+        const volume = gbcModule._get_master_volume();
+        const pct = Math.round(volume * 100);
+        volumeSlider.value = String(pct);
+        volumeLabel.textContent = `${pct}%`;
+      };
+
+      const toUint8Array = (result) => {
+        if (result instanceof ArrayBuffer) {
+          return new Uint8Array(result);
+        }
+        throw new Error("Unexpected binary payload");
+      };
+
+      const copyToHeap = (data, ptr) => {
+        if (gbcModule?.writeArrayToMemory) {
+          gbcModule.writeArrayToMemory(data, ptr);
+        } else if (gbcModule?.HEAPU8) {
+          gbcModule.HEAPU8.set(data, ptr);
+        } else if (gbcModule?.HEAP8) {
+          for (let i = 0; i < data.length; i += 1) {
+            gbcModule.HEAP8[ptr + i] = data[i];
+          }
+        } else {
+          throw new Error("No heap view available");
+        }
+      };
+
+      const callBufferApi = (data, apiName) => {
+        if (!runtimeReady || !gbcModule) {
+          throw new Error("Runtime not ready");
+        }
+        if (!gbcModule._malloc || !gbcModule._free) {
+          throw new Error("Allocator not ready");
+        }
+        const ptr = gbcModule._malloc(data.length);
+        if (!ptr) {
+          throw new Error("Failed to allocate memory");
+        }
+        try {
+          copyToHeap(data, ptr);
+          const fn = gbcModule[`_${apiName}`];
+          if (typeof fn !== "function") {
+            throw new Error(`${apiName} not exported`);
+          }
+          return fn(ptr, data.length);
+        } finally {
+          gbcModule._free(ptr);
+        }
+      };
+
+      const updateFPS = () => {
+        if (runtimeReady && gbcModule?._get_frame_count) {
+          const now = performance.now();
+          const currentFrameCount = gbcModule._get_frame_count();
+          const elapsed = now - lastFpsUpdate;
+          if (elapsed >= 1000) {
+            const fps = ((currentFrameCount - lastFrameCount) * 1000) / elapsed;
+            fpsEl.textContent = `FPS: ${fps.toFixed(1)}`;
+            lastFrameCount = currentFrameCount;
+            lastFpsUpdate = now;
+          }
+        }
+        requestAnimationFrame(updateFPS);
+      };
+
+      requestAnimationFrame(updateFPS);
+
+      const updateKey = (event, isPressed) => {
+        const entry = KEY_MAP[event.code];
+        if (!entry || !runtimeReady || entry.pressed === isPressed) {
+          return;
+        }
+        entry.pressed = isPressed;
+        gbcModule?._set_button_state?.(entry.button, isPressed ? 1 : 0);
         event.preventDefault();
-      }
+      };
 
-      window.addEventListener("keydown", (e) => updateKey(e, true));
-      window.addEventListener("keyup", (e) => updateKey(e, false));
+      window.addEventListener("keydown", (event) => updateKey(event, true));
+      window.addEventListener("keyup", (event) => updateKey(event, false));
 
-      window.addEventListener("keydown", (e) => {
-        if (e.ctrlKey || e.metaKey) {
-          if (e.key === "o" || e.key === "O") {
-            e.preventDefault();
-            document.getElementById("romInput").click();
-          } else if (e.key === "i" || e.key === "I") {
-            e.preventDefault();
-            document.getElementById("saveInput").click();
-          } else if (e.key === "e" || e.key === "E") {
-            e.preventDefault();
-            document.getElementById("exportSaveBtn").click();
+      const adjustVolume = (delta) => {
+        if (!volumeSlider) return;
+        const next = Math.max(
+          0,
+          Math.min(100, parseInt(volumeSlider.value, 10) + delta)
+        );
+        volumeSlider.value = String(next);
+        volumeSlider.dispatchEvent(new Event("input"));
+      };
+
+      const toggleChannelByIndex = (channelIndex) => {
+        const checkbox = document.querySelector(
+          `#channelToggles input[data-channel="${channelIndex}"]`
+        );
+        if (!checkbox) return;
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event("change"));
+      };
+
+      window.addEventListener("keydown", (event) => {
+        if (event.ctrlKey || event.metaKey) {
+          if (event.key === "o" || event.key === "O") {
+            event.preventDefault();
+            romInput?.click();
+          } else if (event.key === "i" || event.key === "I") {
+            event.preventDefault();
+            saveInput?.click();
+          } else if (event.key === "e" || event.key === "E") {
+            event.preventDefault();
+            exportSaveBtn?.click();
           }
-        } else if (e.key === "+" || e.key === "=") {
-          e.preventDefault();
-          const volumeSlider = document.getElementById("volumeSlider");
-          if (volumeSlider) {
-            const current = parseInt(volumeSlider.value);
-            volumeSlider.value = Math.min(100, current + 5);
-            volumeSlider.dispatchEvent(new Event("input"));
-          }
-        } else if (e.key === "-" || e.key === "_") {
-          e.preventDefault();
-          const volumeSlider = document.getElementById("volumeSlider");
-          if (volumeSlider) {
-            const current = parseInt(volumeSlider.value);
-            volumeSlider.value = Math.max(0, current - 5);
-            volumeSlider.dispatchEvent(new Event("input"));
-          }
-        } else if (e.key >= "1" && e.key <= "4") {
-          e.preventDefault();
-          const channel = parseInt(e.key) - 1;
-          const checkbox = document.querySelector(
-            `#channelToggles input[data-channel="${channel}"]`
-          );
-          if (checkbox) {
-            checkbox.checked = !checkbox.checked;
-            checkbox.dispatchEvent(new Event("change"));
-          }
+        } else if (event.key === "+" || event.key === "=") {
+          event.preventDefault();
+          adjustVolume(5);
+        } else if (event.key === "-" || event.key === "_") {
+          event.preventDefault();
+          adjustVolume(-5);
+        } else if (event.key >= "1" && event.key <= "4") {
+          event.preventDefault();
+          toggleChannelByIndex(parseInt(event.key, 10) - 1);
         }
       });
 
-      document.getElementById("romInput").addEventListener("change", (e) => {
-        const file = e.target.files[0];
+      romInput?.addEventListener("change", (event) => {
+        const file = event.target.files?.[0];
         if (!file) return;
         if (!runtimeReady) {
           statusEl.textContent = "Runtime still starting…";
@@ -353,104 +419,75 @@
         }
         statusEl.textContent = `Loading ${file.name}…`;
         const reader = new FileReader();
-        reader.onload = function () {
-          const data = new Uint8Array(reader.result);
-          let ptr = 0;
+        reader.onload = () => {
           try {
-            if (!Module._malloc || !Module._free) {
-              throw new Error("Allocator not ready");
-            }
-            ptr = Module._malloc(data.length);
-            if (!ptr) {
-              throw new Error("Failed to allocate memory");
-            }
-            if (Module.writeArrayToMemory) {
-              Module.writeArrayToMemory(data, ptr);
-            } else if (Module.HEAPU8) {
-            Module.HEAPU8.set(data, ptr);
-            } else if (Module.HEAP8) {
-              for (let i = 0; i < data.length; i++) {
-                Module.HEAP8[ptr + i] = data[i];
-              }
-            } else {
-              for (let i = 0; i < data.length; i++) {
-                Module.setValue(ptr + i, data[i], "i8");
-              }
-            }
-            const result = Module.ccall(
-              "upload_rom",
-              "number",
-              ["number", "number"],
-              [ptr, data.length]
-            );
-            console.log("upload_rom returned", result);
+            const data = toUint8Array(reader.result);
+            const result = callBufferApi(data, "upload_rom");
             statusEl.textContent =
               result === 1 ? `Loaded ${file.name}` : "Failed to load ROM";
-          } catch (err) {
-            console.error("ROM upload threw", err);
-            statusEl.textContent = "Error loading ROM: " + err.message;
-          } finally {
-            if (ptr && Module._free) {
-              Module._free(ptr);
-            }
+          } catch (error) {
+            console.error("ROM upload failed", error);
+            statusEl.textContent = `Error loading ROM: ${error.message}`;
           }
         };
-        reader.onerror = (err) => {
-          console.error("FileReader error", err);
+        reader.onerror = () => {
+          console.error("FileReader error", reader.error);
           statusEl.textContent = "Error reading ROM";
         };
         reader.readAsArrayBuffer(file);
       });
 
-      document.querySelectorAll("#channelToggles input").forEach((el) => {
-        el.addEventListener("change", () => {
-          if (!runtimeReady || !Module._set_channel_muted) return;
-          const channel = parseInt(el.dataset.channel, 10);
-          Module._set_channel_muted(channel, el.checked ? 0 : 1);
+      channelCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", () => {
+          if (!runtimeReady || !gbcModule?._set_channel_muted) return;
+          const channel = Number(checkbox.dataset.channel);
+          gbcModule._set_channel_muted(channel, checkbox.checked ? 0 : 1);
         });
       });
 
-      document.getElementById("exportSaveBtn").addEventListener("click", () => {
+      exportSaveBtn?.addEventListener("click", () => {
         if (
           !runtimeReady ||
-          !Module._get_cart_ram_ptr ||
-          !Module._get_cart_ram_size
+          !gbcModule?._get_cart_ram_ptr ||
+          !gbcModule?._get_cart_ram_size
         ) {
           statusEl.textContent = "Not ready";
           return;
         }
         try {
-          const ptr = Module._get_cart_ram_ptr();
-          const size = Module._get_cart_ram_size();
+          const ptr = gbcModule._get_cart_ram_ptr();
+          const size = gbcModule._get_cart_ram_size();
           if (!ptr || size <= 0) {
             statusEl.textContent = "No save data available";
             return;
           }
-          const ramData = new Uint8Array(Module.HEAPU8.buffer, ptr, size);
+          if (!gbcModule?.HEAPU8) {
+            statusEl.textContent = "Heap unavailable";
+            return;
+          }
+          const ramData = new Uint8Array(gbcModule.HEAPU8.buffer, ptr, size);
           const blob = new Blob([ramData], {
             type: "application/octet-stream",
           });
           const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = "save.bin";
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = "save.bin";
+          document.body.appendChild(anchor);
+          anchor.click();
+          document.body.removeChild(anchor);
           URL.revokeObjectURL(url);
           statusEl.textContent = "Save exported";
-        } catch (err) {
-          console.error("Export save error", err);
+        } catch (error) {
+          console.error("Export save error", error);
           statusEl.textContent = "Error exporting save";
         }
       });
 
-      document.getElementById("importSaveBtn").addEventListener("click", () => {
-        document.getElementById("saveInput").click();
-      });
+      importSaveBtn?.addEventListener("click", () => saveInput?.click());
 
-      document.getElementById("saveInput").addEventListener("change", (e) => {
-        const file = e.target.files[0];
+      saveInput?.addEventListener("change", (event) => {
+        const file = event.target.files?.[0];
         if (!file) return;
         if (!runtimeReady) {
           statusEl.textContent = "Runtime still starting…";
@@ -458,68 +495,38 @@
         }
         statusEl.textContent = `Loading ${file.name}…`;
         const reader = new FileReader();
-        reader.onload = function () {
-          const data = new Uint8Array(reader.result);
-          let ptr = 0;
+        reader.onload = () => {
           try {
-            if (!Module._malloc || !Module._free) {
-              throw new Error("Allocator not ready");
-            }
-            ptr = Module._malloc(data.length);
-            if (!ptr) {
-              throw new Error("Failed to allocate memory");
-            }
-            if (Module.writeArrayToMemory) {
-              Module.writeArrayToMemory(data, ptr);
-            } else if (Module.HEAPU8) {
-              Module.HEAPU8.set(data, ptr);
-            } else if (Module.HEAP8) {
-              for (let i = 0; i < data.length; i++) {
-                Module.HEAP8[ptr + i] = data[i];
-              }
-            } else {
-              for (let i = 0; i < data.length; i++) {
-                Module.setValue(ptr + i, data[i], "i8");
-              }
-            }
-            const result = Module.ccall(
-              "import_save",
-              "number",
-              ["number", "number"],
-              [ptr, data.length]
-            );
-            console.log("import_save returned", result);
+            const data = toUint8Array(reader.result);
+            const result = callBufferApi(data, "import_save");
             statusEl.textContent =
               result === 1 ? `Loaded ${file.name}` : "Failed to load save";
-          } catch (err) {
-            console.error("Save import threw", err);
-            statusEl.textContent = "Error loading save: " + err.message;
+          } catch (error) {
+            console.error("Save import failed", error);
+            statusEl.textContent = `Error loading save: ${error.message}`;
           } finally {
-            if (ptr && Module._free) {
-              Module._free(ptr);
-            }
+            saveInput.value = "";
           }
         };
-        reader.onerror = (err) => {
-          console.error("FileReader error", err);
+        reader.onerror = () => {
+          console.error("FileReader error", reader.error);
           statusEl.textContent = "Error reading save";
+          saveInput.value = "";
         };
         reader.readAsArrayBuffer(file);
-        e.target.value = "";
       });
 
-      const volumeSlider = document.getElementById("volumeSlider");
-      const volumeLabel = document.getElementById("volumeLabel");
-      if (volumeSlider && volumeLabel) {
-        volumeSlider.addEventListener("input", (e) => {
-          const volume = parseFloat(e.target.value) / 100.0;
-          volumeLabel.textContent = Math.round(volume * 100) + "%";
-          if (runtimeReady && Module._set_master_volume) {
-            Module._set_master_volume(volume);
-          }
-        });
-      }
+      volumeSlider?.addEventListener("input", (event) => {
+        const value = Number(event.target.value);
+        if (volumeLabel) {
+          volumeLabel.textContent = `${value}%`;
+        }
+        if (runtimeReady && gbcModule?._set_master_volume) {
+          gbcModule._set_master_volume(value / 100);
+        }
+      });
+
+      initModule();
     </script>
-    <script async type="text/javascript" src="GBC.js"></script>
   </body>
 </html>
