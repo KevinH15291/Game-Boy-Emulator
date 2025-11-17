@@ -24,7 +24,7 @@ endif()
 
 
 option(ENABLE_LTO "Enable Link-Time Optimization" ON)
-if(ENABLE_LTO AND NOT EMSCRIPTEN)
+if(ENABLE_LTO)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT LTO_SUPPORTED OUTPUT output)
     if(LTO_SUPPORTED)
@@ -59,8 +59,9 @@ set(SOURCES
 add_executable(GBC ${SOURCES})
 
 if(EMSCRIPTEN)
-    target_compile_options(GBC PUBLIC -sUSE_SDL=2)
+    target_compile_options(GBC PUBLIC -sUSE_SDL=2 -O3)
     target_link_options(GBC PUBLIC 
+        -flto
         -sUSE_SDL=2
         -sSTACK_SIZE=16777216
         -sMODULARIZE=1
