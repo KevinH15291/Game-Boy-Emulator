@@ -81,7 +81,7 @@ void shutdown_emulator() {
 int main(int /*argc*/, char*[] /*argv*/) {
     GBC::GBC gbc(true);
     g_gbc = &gbc;
-    emscripten_set_main_loop_arg(emscripten_frame_loop, &gbc, 0, 1);
+    emscripten_set_main_loop_arg(emscripten_frame_loop, &gbc, 60, 1);
     return 0;
 }
 #else

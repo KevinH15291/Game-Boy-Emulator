@@ -403,10 +403,11 @@ void APU::execute_cycle() {
     tick_wave();
     tick_noise();
 
-    sampleAccumulator += 1;
-    constexpr uint32_t CYCLES_PER_SAMPLE = CPU_FREQUENCY / SAMPLE_RATE;
-    if (sampleAccumulator >= CYCLES_PER_SAMPLE) {
-        sampleAccumulator -= CYCLES_PER_SAMPLE;
+    sampleAccumulator += (1ULL << 16);
+    constexpr uint64_t CYCLES_PER_SAMPLE_FP =
+        ((uint64_t)CPU_FREQUENCY << 16) / SAMPLE_RATE;
+    if (sampleAccumulator >= CYCLES_PER_SAMPLE_FP) {
+        sampleAccumulator -= CYCLES_PER_SAMPLE_FP;
         mix_and_output();
     }
 }
@@ -804,10 +805,41 @@ void APU::queue_audio(float left, float right) {
 
     if (bufferedSamples >= AUDIO_BUFFER_SAMPLES) {
 #ifdef __EMSCRIPTEN__
+        Uint32 queued = SDL_GetQueuedAudioSize(audioDevice);
+        constexpr Uint32 MAX_QUEUED =
+            AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 10;
+        constexpr Uint32 MIN_QUEUED =
+            AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 2;
+        if (queued < MIN_QUEUED) {
+            SDL_QueueAudio(
+                audioDevice, sampleBuffer.data(),
+                static_cast<Uint32>(bufferedSamples * sizeof(float) * 2));
+            bufferedSamples = 0;
+            return;
+        }
+        if (queued > MAX_QUEUED) {
+            bufferedSamples = 0;
+            return;
+        }
         SDL_QueueAudio(
             audioDevice, sampleBuffer.data(),
             static_cast<Uint32>(bufferedSamples * sizeof(float) * 2));
 #else
+        int queued = SDL_GetAudioStreamQueued(audioStream);
+        constexpr int MAX_QUEUED =
+            AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 10;
+        constexpr int MIN_QUEUED = AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 2;
+        if (queued < MIN_QUEUED) {
+            SDL_PutAudioStreamData(
+                audioStream, sampleBuffer.data(),
+                static_cast<int>(bufferedSamples * sizeof(float) * 2));
+            bufferedSamples = 0;
+            return;
+        }
+        if (queued > MAX_QUEUED) {
+            bufferedSamples = 0;
+            return;
+        }
         SDL_PutAudioStreamData(
             audioStream, sampleBuffer.data(),
             static_cast<int>(bufferedSamples * sizeof(float) * 2));

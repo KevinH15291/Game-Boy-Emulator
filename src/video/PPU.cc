@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iostream>
+#include <utility>
 
 #include "bit_ops.h"
 #include "bus.h"
@@ -231,7 +232,6 @@ void PPU::draw_pixel() {
     uint32_t final_color = bg_color_rgb;
     const bool sprite_visible = obj_pixel.has_pixel && obj_pixel.color != 0;
     const bool bg_has_color = bg_pixel.color != 0;
-    const bool bg_priority = bg_pixel.priority || bus->bg_priority_over_obj();
     uint32_t obj_color_rgb = 0;
     bool obj_color_cached = false;
     const auto get_obj_color = [&]() -> uint32_t {
@@ -243,15 +243,34 @@ void PPU::draw_pixel() {
         return obj_color_rgb;
     };
 
+    bool obj_wins = false;
+    if (config.cgb_mode) {
+        if (bg_pixel.color == 0) {
+            obj_wins = true;
+        } else if (!isBitSet(cached_LCDC, 0)) {
+            obj_wins = true;
+        } else {
+            const bool oam_bit7_clear = !obj_pixel.priority;
+            const bool bg_bit7_clear = !bg_pixel.priority;
+            obj_wins = oam_bit7_clear && bg_bit7_clear;
+        }
+    } else {
+        if (obj_pixel.priority) {
+            obj_wins = false;
+        } else {
+            const bool bg_priority =
+                bg_pixel.priority || bus->bg_priority_over_obj();
+            obj_wins = !bg_priority;
+        }
+    }
+
     if (obj_enabled && sprite_visible) {
         if (!bg_enabled || !bg_has_color) {
             final_color = get_obj_color();
-        } else if (obj_pixel.priority && bg_has_color) {
-            final_color = bg_color_rgb;
-        } else if (bg_priority && bg_has_color) {
-            final_color = bg_color_rgb;
-        } else {
+        } else if (obj_wins) {
             final_color = get_obj_color();
+        } else {
+            final_color = bg_color_rgb;
         }
     }
 
@@ -294,7 +313,8 @@ inline PPU::ObjPixel PPU::sample_object_pixel(int screen_x) {
         const byte flags = sprite.flags;
         const bool yflip = isBitSet(flags, 6);
         const bool xflip = isBitSet(flags, 5);
-        const bool sprite_priority = isBitSet(flags, 7);
+        const bool sprite_priority =
+            config.cgb_mode ? !isBitSet(flags, 7) : isBitSet(flags, 7);
         const byte palette = config.cgb_mode ? getBitRange(flags, 0, 3)
                                              : (isBitSet(flags, 4) ? 1 : 0);
         const byte tile_bank = (config.cgb_mode && isBitSet(flags, 3)) ? 1 : 0;
@@ -327,7 +347,7 @@ inline PPU::ObjPixel PPU::sample_object_pixel(int screen_x) {
 
         result.color = color;
         result.palette = palette;
-        result.priority = sprite_priority;
+        result.priority = isBitSet(flags, 7);
         result.has_pixel = true;
         return result;
     }
@@ -378,7 +398,7 @@ inline PPU::BgPixel PPU::sample_tile_map_pixel(TileMapKind kind, half tilex,
     BgPixel pixel{};
     pixel.color = color;
     pixel.palette = config.cgb_mode ? getBitRange(attributes, 0, 3) : 0;
-    pixel.priority = config.cgb_mode && isBitSet(attributes, 6);
+    pixel.priority = config.cgb_mode && isBitSet(attributes, 7);
     return pixel;
 }
 
