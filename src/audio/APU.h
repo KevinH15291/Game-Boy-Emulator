@@ -38,8 +38,10 @@ class APU {
     void set_master_volume(float volume);
     float get_master_volume() const;
 
+#ifndef __EMSCRIPTEN__
     void enable_audio_export(bool enable);
     void close_audio_export();
+#endif
 
    private:
     struct SquareChannel {
@@ -152,7 +154,9 @@ class APU {
     float masterVolume = 1.0f;
 
     bool audioExportEnabled = false;
+#ifndef __EMSCRIPTEN__
     std::ofstream channelFiles[4];
+#endif
     uint32_t exportedSampleCount = 0;
 
    private:

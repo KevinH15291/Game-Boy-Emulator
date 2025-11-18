@@ -14,8 +14,10 @@ namespace GBC {
 void SM83::execute() {
     increment_timer();
 
-    byte current_IE = memory->read(addr(MemoryRegion::IE));
-    byte current_IF = memory->read(addr(IORegister::IF));
+    byte current_IE = memory->IEnable;
+    byte current_IF =
+        memory
+            ->IOrange[addr(IORegister::IF) - addr(MemoryRegion::IO_REGISTERS)];
     byte pending_interrupts = current_IF & current_IE;
 
     if (pending_interrupts != 0) halted = false;
@@ -27,14 +29,16 @@ void SM83::execute() {
     }
 
     if (IME && pending_interrupts) {
-        static constexpr half interrupt_handlers[5] = {0x40, 0x48, 0x50, 0x58,
-                                                       0x60};
+        static constexpr std::array<half, 5> interrupt_handlers = {
+            0x40, 0x48, 0x50, 0x58, 0x60};
 
         for (int i = 0; i < 5; ++i) {
             if (isBitSet(pending_interrupts, i)) {
-                IME = 0;
-                memory->write(addr(IORegister::IF),
-                              clearBit(memory->read(addr(IORegister::IF)), i));
+                IME = false;
+                auto& if_reg =
+                    memory->IOrange[addr(IORegister::IF) -
+                                    addr(MemoryRegion::IO_REGISTERS)];
+                if_reg = clearBit(if_reg, i);
                 call_interrupt(interrupt_handlers[i]);
                 return;
             }
@@ -675,7 +679,8 @@ inline void SM83::instrSTOP() {
     }
     halted = true;
     divcounter = 0;
-    memory->write(addr(IORegister::DIV), 0);
+    memory->IOrange[addr(IORegister::DIV) - addr(MemoryRegion::IO_REGISTERS)] =
+        0;
 }
 
 inline void SM83::instrJR_Cond_Imm8(bool condition) {
@@ -758,7 +763,8 @@ inline void SM83::instrLdImm8_HL() { memory->write(getHL(), fetch8()); }
 
 inline void SM83::instrHALT() {
     halted = true;
-    memory->write(addr(IORegister::DIV), 0);
+    memory->IOrange[addr(IORegister::DIV) - addr(MemoryRegion::IO_REGISTERS)] =
+        0;
     divcounter = 0;
 }
 
@@ -1343,7 +1349,9 @@ inline void SM83::increment_timer() {
                         addr(MemoryRegion::IO_REGISTERS)]++;
     }
 
-    tacreg = memory->read(addr(IORegister::TAC));
+    tacreg =
+        memory
+            ->IOrange[addr(IORegister::TAC) - addr(MemoryRegion::IO_REGISTERS)];
     if (!isBitSet(tacreg, 2)) {
         timacounter = 0;
         tima_written_this_cycle = false;
@@ -1357,7 +1365,8 @@ inline void SM83::increment_timer() {
         return;
     }
 
-    timareg = memory->read(addr(IORegister::TIMA));
+    timareg = memory->IOrange[addr(IORegister::TIMA) -
+                              addr(MemoryRegion::IO_REGISTERS)];
     bool should_increment = false;
     if ((timacounter == 256 * 4) && ((tacreg & 0x3) == 0)) {
         should_increment = true;
@@ -1378,9 +1387,11 @@ inline void SM83::increment_timer() {
         if (new_tima == 0) {
             memory->IOrange[addr(IORegister::TIMA) -
                             addr(MemoryRegion::IO_REGISTERS)] =
-                memory->read(addr(IORegister::TMA));
-            memory->write(addr(IORegister::IF),
-                          setBit(memory->read(addr(IORegister::IF)), 2));
+                memory->IOrange[addr(IORegister::TMA) -
+                                addr(MemoryRegion::IO_REGISTERS)];
+            auto& if_reg = memory->IOrange[addr(IORegister::IF) -
+                                           addr(MemoryRegion::IO_REGISTERS)];
+            if_reg = setBit(if_reg, 2);
         } else {
             memory->IOrange[addr(IORegister::TIMA) -
                             addr(MemoryRegion::IO_REGISTERS)] = new_tima;
@@ -1388,6 +1399,7 @@ inline void SM83::increment_timer() {
     }
 }
 
+#if GBC_CPU_DEBUG && !defined(__EMSCRIPTEN__)
 void SM83::dump_registers() {
     std::ofstream("log.txt", std::ofstream::app) << "rA: " << (int)RA << " "
                                                  << "rB: " << (int)RB << " "
@@ -1401,9 +1413,16 @@ void SM83::dump_registers() {
 
 void SM83::dump_info() {
     std::ofstream("log.txt", std::ofstream::app)
-        << "timer: " << (int)memory->read(addr(IORegister::DIV)) << '\n';
+        << "timer: "
+        << (int)memory->IOrange[addr(IORegister::DIV) -
+                                addr(MemoryRegion::IO_REGISTERS)]
+        << '\n';
     std::ofstream("log.txt", std::ofstream::app)
-        << "TAC: " << (int)memory->read(addr(IORegister::TAC)) << '\n';
+        << "TAC: "
+        << (int)memory->IOrange[addr(IORegister::TAC) -
+                                addr(MemoryRegion::IO_REGISTERS)]
+        << '\n';
 }
+#endif
 
 }  // namespace GBC

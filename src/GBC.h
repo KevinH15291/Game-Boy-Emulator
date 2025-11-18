@@ -26,14 +26,14 @@ class GBC {
     void execute_frame();
     [[gnu::always_inline]] inline void execute_cycle();
     inline void debug_execute_cycle(uint32_t freq);
-    inline void dump_stuff();
+
     inline void handle_input();
     void reset_after_rom_load();
-
-   private:
+#if GBC_CPU_DEBUG && !defined(__EMSCRIPTEN__)
+    inline void dump_stuff();
     void log_frame_state(uint32_t frame_index);
+#endif
 
-   public:
     const bool window_enabled_;
     CgbConfig config{};
     address_bus addresses;
@@ -46,7 +46,7 @@ class GBC {
     unsigned long long cycle_count = 0;
 
 #ifdef __EMSCRIPTEN__
-    byte buttonState[8] = {
+    std::array<byte, 8> buttonState = {
         0};  // 8 buttons: A, B, Select, Start, Right, Left, Up, Down
 #endif
 };

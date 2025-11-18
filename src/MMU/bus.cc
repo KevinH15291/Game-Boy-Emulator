@@ -210,11 +210,13 @@ std::expected<std::vector<byte>, std::string> read_file_bytes(
 }  // namespace
 
 void address_bus::load_boot_ROM(const char* fname, uint32_t size) {
-    booting = 1;
+    booting = true;
     const auto path = std::filesystem::path(fname);
     auto data = read_file_bytes(path, size);
     if (!data) {
+#ifndef __EMSCRIPTEN__
         std::cerr << data.error() << std::endl;
+#endif
         return;
     }
     const auto& bytes = data.value();
@@ -226,12 +228,16 @@ void address_bus::load_ROM(const char* fname) {
     const auto path = std::filesystem::path(fname);
     auto data = read_file_bytes(path, cartROM.size());
     if (!data) {
+#ifndef __EMSCRIPTEN__
         std::cerr << data.error() << std::endl;
+#endif
         return;
     }
     const auto bytes_read = data->size();
     if (bytes_read <= 0x148) {
-        std::cerr << "ROM header too small: " << fname << std::endl;
+#ifndef __EMSCRIPTEN__
+        std::cerr << "ROM header too small: " << fname << '\n';
+#endif
         return;
     }
     std::copy(data->begin(), data->end(), cartROM.begin());
@@ -241,8 +247,10 @@ void address_bus::load_ROM(const char* fname) {
     }
     const size_t max_bytes = cartROM.size();
     if (bytes_read == max_bytes && data->size() == max_bytes) {
+#ifndef __EMSCRIPTEN__
         std::cerr << "ROM larger than supported buffer (" << max_bytes
                   << " bytes); data truncated.\n";
+#endif
     }
 
     mbc = static_cast<MemoryBankController>(cartROM[0x147]);
@@ -262,8 +270,6 @@ void address_bus::load_ROM(const char* fname) {
     config.speed_switch_armed = false;
     sync_key_registers();
     reset_MBC_state();
-    std::ofstream("log.txt", std::ofstream::app)
-        << "mbc: " << std::hex << static_cast<int>(mbc) << '\n';
 }
 
 #ifdef __EMSCRIPTEN__
@@ -701,8 +707,6 @@ inline void address_bus::writeIO(half address, byte val) {
             ppu->write_register(address, val);
             return;
         case addr(VideoRegister::LY):  // 0xFF44
-            std::ofstream("log.txt", std::ofstream::app)
-                << "wrote to LY" << std::hex << val;
             return;
         case addr(VideoRegister::LYC):  // 0xFF45
             ppu->write_register(address, val);

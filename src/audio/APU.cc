@@ -95,6 +95,7 @@ inline int16_t clamp16(int value) {
     return static_cast<int16_t>(value);
 }
 
+#ifndef __EMSCRIPTEN__
 void write_wav_header(std::ofstream &file, uint32_t sampleCount) {
     file.write("RIFF", 4);
     uint32_t fileSize = 36 + sampleCount * 2;
@@ -119,6 +120,7 @@ void write_wav_header(std::ofstream &file, uint32_t sampleCount) {
     uint32_t dataSize = sampleCount * 2;
     file.write(reinterpret_cast<const char *>(&dataSize), 4);
 }
+#endif
 
 }  // namespace
 
@@ -151,7 +153,9 @@ APU::APU(address_bus &memory, CgbConfig &config)
 
 APU::~APU() {
     flush_audio();
+#ifndef __EMSCRIPTEN__
     close_audio_export();
+#endif
 #ifdef __EMSCRIPTEN__
     if (audioDevice != 0) {
         SDL_CloseAudioDevice(audioDevice);
@@ -715,16 +719,18 @@ void APU::mix_and_output() {
     int8_t raw_s4 = sample_noise();
 
     if (audioExportEnabled) {
-        int16_t samples[4] = {static_cast<int16_t>(raw_s1 * 256),
-                              static_cast<int16_t>(raw_s2 * 256),
-                              static_cast<int16_t>(raw_s3 * 256),
-                              static_cast<int16_t>(raw_s4 * 256)};
+        std::array<int16_t, 4> samples = {static_cast<int16_t>(raw_s1 * 256),
+                                          static_cast<int16_t>(raw_s2 * 256),
+                                          static_cast<int16_t>(raw_s3 * 256),
+                                          static_cast<int16_t>(raw_s4 * 256)};
+#ifndef __EMSCRIPTEN__
         for (int i = 0; i < 4; ++i) {
             if (channelFiles[i].is_open()) {
                 channelFiles[i].write(
                     reinterpret_cast<const char *>(&samples[i]), 2);
             }
         }
+#endif
         ++exportedSampleCount;
     }
 
@@ -754,6 +760,9 @@ void APU::mix_and_output() {
 
     float leftIn = static_cast<float>(leftMix) * leftVolume / 240.0f;
     float rightIn = static_cast<float>(rightMix) * rightVolume / 240.0f;
+
+    leftIn = std::max(-1.0f, std::min(1.0f, leftIn));
+    rightIn = std::max(-1.0f, std::min(1.0f, rightIn));
 
     bool dacsEnabled =
         ch1.dacEnabled || ch2.dacEnabled || ch3.dacEnabled || ch4.dacEnabled;
@@ -821,13 +830,14 @@ void APU::flush_audio() {
     bufferedSamples = 0;
 }
 
+#ifndef __EMSCRIPTEN__
 void APU::enable_audio_export(bool enable) {
     if (enable == audioExportEnabled) return;
 
     if (enable) {
-        const char *filenames[4] = {"channel1_square.wav",
-                                    "channel2_square.wav", "channel3_wave.wav",
-                                    "channel4_noise.wav"};
+        std::array<const char *, 4> filenames = {
+            "channel1_square.wav", "channel2_square.wav", "channel3_wave.wav",
+            "channel4_noise.wav"};
         for (int i = 0; i < 4; ++i) {
             channelFiles[i].open(filenames[i], std::ios::binary);
             if (channelFiles[i].is_open()) {
@@ -858,10 +868,11 @@ void APU::close_audio_export() {
             channelFiles[i].close();
         }
     }
-    audioExportEnabled = false;
     std::cout << "Audio export closed. Exported " << exportedSampleCount
               << " samples per channel." << std::endl;
+    audioExportEnabled = false;
 }
+#endif
 
 void APU::load_boot_defaults() {
     for (const auto &entry : BOOT_REG_DEFAULTS) {

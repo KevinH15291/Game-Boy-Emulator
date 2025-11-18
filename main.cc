@@ -16,14 +16,10 @@ static GBC::GBC* g_gbc = nullptr;
 extern "C" {
 int upload_rom(uint8_t* data, size_t length) {
     if (!g_gbc) return 0;
-    try {
-        g_gbc->addresses.load_ROM_buffer(data, length);
-        g_gbc->addresses.set_boot_complete(true);
-        g_gbc->reset_after_rom_load();
-        return 1;
-    } catch (...) {
-        return 0;
-    }
+    g_gbc->addresses.load_ROM_buffer(data, length);
+    g_gbc->addresses.set_boot_complete(true);
+    g_gbc->reset_after_rom_load();
+    return 1;
 }
 
 void set_button_state(int button, int pressed) {
@@ -65,12 +61,8 @@ int get_cart_ram_size() { return 32 * 1024; }
 
 int import_save(uint8_t* data, size_t length) {
     if (!g_gbc) return 0;
-    try {
-        g_gbc->addresses.load_RAM_buffer(data, length);
-        return 1;
-    } catch (...) {
-        return 0;
-    }
+    g_gbc->addresses.load_RAM_buffer(data, length);
+    return 1;
 }
 
 void emscripten_frame_loop(void* arg) {

@@ -23,6 +23,7 @@ namespace GBC {
 constexpr uint32_t WINDOW_WIDTH = 160;
 constexpr uint32_t WINDOW_HEIGHT = 144;
 
+class GBC;
 struct obj {
     byte objx, objy, index, flags;
 };
@@ -31,6 +32,28 @@ class PPU {
    public:
     PPU(address_bus *bus, CgbConfig &config) : bus(bus), config(config) {}
     ~PPU();
+
+    void execute_cycle();
+    void draw_pixel();
+#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
+    void dump_info();
+    void dump_vram();
+#endif
+
+    void init_window();
+
+#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
+    void init_debug_window();
+    void render_debug();
+#endif
+    void mark_cache_dirty() { cache_dirty = true; }
+
+    byte read_register(half address) const;
+    void write_register(half address, byte value);
+
+   private:
+    friend class GBC;
+    friend class address_bus;
 
     RenderingState mode = RenderingState::hblank;
     address_bus *bus;
@@ -54,25 +77,7 @@ class PPU {
     SDL_Texture *texture = nullptr;
 
     std::array<uint32_t, WINDOW_WIDTH * WINDOW_HEIGHT> frame_rgb{};
-
-    void execute_cycle();
-    void draw_pixel();
-    void dump_info();
-    void dump_vram();
-
-    void init_window();
-
-#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
-    void init_debug_window();
-    void render_debug();
-#endif
-    void mark_cache_dirty() { cache_dirty = true; }
-
-    byte read_register(half address) const;
-    void write_register(half address, byte value);
-
-   private:
-    obj objbuffer[10];
+    std::array<obj, 10> objbuffer;
     byte objnum = 0;
     byte cached_LCDC = 0;
     byte cached_BGP = 0;
@@ -119,7 +124,7 @@ class PPU {
     inline BgPixel sample_window_pixel(half tilex, half tiley);
     inline BgPixel sample_tile_map_pixel(TileMapKind kind, half tilex,
                                          half tiley);
-    inline ObjPixel sample_object_pixel();
+    inline ObjPixel sample_object_pixel(int screen_x);
     void set_mode(RenderingState new_mode, bool allow_interrupt = true);
     void request_stat_interrupt(byte stat_bit);
     void upload_frame_to_texture();

@@ -63,7 +63,12 @@ if(EMSCRIPTEN)
     target_link_options(GBC PUBLIC 
         -flto
         -sUSE_SDL=2
-        -sSTACK_SIZE=16777216
+        -sSTACK_SIZE=2097152
+        -sMAXIMUM_MEMORY=67108864
+        -sALLOW_MEMORY_GROWTH=1
+        -sASSERTIONS=0
+        -sDISABLE_EXCEPTION_CATCHING=1
+        -sFILESYSTEM=0
         -sMODULARIZE=1
         -sEXPORT_ES6=1
         -sEXIT_RUNTIME=1

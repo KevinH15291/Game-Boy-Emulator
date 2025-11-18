@@ -243,7 +243,7 @@ class address_bus {
     void update_hdma_status_register();
     byte read_internal(half address, bool privileged);
     void write_internal(half address, byte value, bool privileged);
-    byte read_joyp_state() const;
+    [[nodiscard]] byte read_joyp_state() const;
     void handle_rtc_register_write(byte reg_index, byte value);
     void handle_rtc_latch_write(byte value);
     void handle_hdma_register(half address, byte value);

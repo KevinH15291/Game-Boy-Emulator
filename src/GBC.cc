@@ -21,9 +21,6 @@ GBC::GBC(bool enable_window)
     addresses.apu = &apu;
     addresses.set_cpu(&cpu);
     start();
-#ifndef __EMSCRIPTEN__
-    std::ofstream("log.txt") << "";
-#endif
 }
 
 void GBC::start() {
@@ -125,7 +122,7 @@ void GBC::run() {
     } else {
         cpu.pc = 0;
     }
-    bool breakflag = 0;
+    bool breakflag = false;
 
     constexpr double FRAME_TIME_MS = 1000.0 / 59.7275;
     constexpr auto FRAME_TIME_NS =
@@ -195,8 +192,9 @@ inline void GBC::handle_input() {
 
     if (((input_d & addresses.input_d) ^ input_d) |
         ((input_s & addresses.input_s) ^ input_s)) {
-        addresses.write(addr(IORegister::IF),
-                        setBit(addresses.read(addr(IORegister::IF)), 4));
+        auto& if_reg = addresses.IOrange[addr(IORegister::IF) -
+                                         addr(MemoryRegion::IO_REGISTERS)];
+        if_reg = setBit(if_reg, 4);
     }
 
     addresses.input_d = ~input_d;
@@ -224,8 +222,9 @@ inline void GBC::handle_input() {
 
     if (((input_d & addresses.input_d) ^ input_d) |
         ((input_s & addresses.input_s) ^ input_s)) {
-        addresses.write(addr(IORegister::IF),
-                        setBit(addresses.read(addr(IORegister::IF)), 4));
+        auto& if_reg = addresses.IOrange[addr(IORegister::IF) -
+                                         addr(MemoryRegion::IO_REGISTERS)];
+        if_reg = setBit(if_reg, 4);
     }
 
     addresses.input_d = ~input_d;
@@ -251,7 +250,6 @@ void GBC::execute_frame() {
         }
     }
     apu.flush_audio();
-    log_frame_state(frame);
 }
 
 inline void GBC::execute_cycle() {
@@ -285,6 +283,7 @@ inline void GBC::debug_execute_cycle(uint32_t freq) {
 #endif
 }
 
+#if GBC_CPU_DEBUG && !defined(__EMSCRIPTEN__)
 inline void GBC::dump_stuff() {
     std::ofstream("log.txt", std::ofstream::app)
         << "_________\n"
@@ -313,9 +312,10 @@ inline void GBC::dump_stuff() {
         << '\n'
         << "lyc: " << std::hex << (int)addresses.read(addr(VideoRegister::LYC))
         << '\n'
-        << "IE: " << std::hex << (int)addresses.read(addr(MemoryRegion::IE))
-        << '\n'
-        << "IF: " << std::hex << (int)addresses.read(addr(IORegister::IF))
+        << "IE: " << std::hex << (int)addresses.IEnable << '\n'
+        << "IF: " << std::hex
+        << (int)addresses
+               .IOrange[addr(IORegister::IF) - addr(MemoryRegion::IO_REGISTERS)]
         << '\n'
         << "IME: " << std::hex << (int)cpu.IME << '\n'
         << "bg tile map: " << std::hex
@@ -349,6 +349,8 @@ inline void GBC::dump_stuff() {
         << "LY: " << (int)ppu.bus->read(0xFF44) << '\n'
         << "_________" << std::endl;
 }
+#endif
+#if GBC_CPU_DEBUG && !defined(__EMSCRIPTEN__)
 
 void GBC::log_frame_state(uint32_t frame_index) {
     static constexpr uint32_t kMaxLoggedFrames = 32;
@@ -396,4 +398,6 @@ void GBC::log_frame_state(uint32_t frame_index) {
     }
     log << "]\n";
 }
+#endif
+
 }  // namespace GBC

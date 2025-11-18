@@ -19,13 +19,13 @@ class SM83 {
    public:
     SM83(address_bus *memory, CgbConfig &config)
         : memory(memory), config(config) {
-        memset(r8, 0, 8);
+        r8.fill(0);
     }
 
     address_bus *memory;
     CgbConfig &config;
 
-    byte r8[8];
+    std::array<byte, 8> r8;
 
     uint32_t divcounter = 0, timacounter = 0, timareg,
              tacreg;  // TODO probably should maybe make these have underscores
@@ -222,7 +222,9 @@ class SM83 {
 
     inline void increment_timer();
 
+#if GBC_CPU_DEBUG && !defined(__EMSCRIPTEN__)
     void dump_registers();
     void dump_info();
+#endif
 };
 }  // namespace GBC

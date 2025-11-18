@@ -113,15 +113,16 @@ void PPU::execute_cycle() {
 
     if (!isBitSet(cached_LCDC, 7)) {
         set_mode(RenderingState::hblank, false);
-        bus->write(addr(IORegister::IF),
-                   clearBit(bus->read(addr(IORegister::IF)), 1));
+        auto& if_reg = bus->IOrange[addr(IORegister::IF) -
+                                    addr(MemoryRegion::IO_REGISTERS)];
+        if_reg = clearBit(if_reg, 1);
         return;
     }
-    bus->write(addr(IORegister::IF),
-               clearBit(bus->read(addr(IORegister::IF)), 1));
+    auto& if_reg =
+        bus->IOrange[addr(IORegister::IF) - addr(MemoryRegion::IO_REGISTERS)];
+    if_reg = clearBit(if_reg, 1);
     if (isBitSet(reg_STAT, 6) && lyc_match) {
-        bus->write(addr(IORegister::IF),
-                   setBit(bus->read(addr(IORegister::IF)), 1));
+        if_reg = setBit(if_reg, 1);
     }
 
     if (lines < 144) {
@@ -132,15 +133,8 @@ void PPU::execute_cycle() {
                 byte objsize = isBitSet(cached_LCDC, 2) ? 16 : 8;
 
                 for (int16_t i = 0x00; i < 0x9F; i += 4) {
-                    byte objy = bus->read_privileged(
-                                    addr(MemoryRegion::OAMaddress) + i) -
-                                16,
-                         objx = bus->read_privileged(
-                             addr(MemoryRegion::OAMaddress) + i + 1),
-                         index = bus->read_privileged(
-                             addr(MemoryRegion::OAMaddress) + i + 2),
-                         flags = bus->read_privileged(
-                             addr(MemoryRegion::OAMaddress) + i + 3);
+                    byte objy = bus->OAM[i] - 16, objx = bus->OAM[i + 1],
+                         index = bus->OAM[i + 2], flags = bus->OAM[i + 3];
                     if (objy <= lines && objy + objsize > lines) {
                         objbuffer[objnum].objx = objx,
                         objbuffer[objnum].objy = objy,
@@ -177,8 +171,9 @@ void PPU::execute_cycle() {
         if (mode != RenderingState::vblank) {
             set_mode(RenderingState::vblank);
             wly = 0;
-            bus->write(addr(IORegister::IF),
-                       setBit(bus->read(addr(IORegister::IF)), 0));
+            auto& if_reg = bus->IOrange[addr(IORegister::IF) -
+                                        addr(MemoryRegion::IO_REGISTERS)];
+            if_reg = setBit(if_reg, 0);
             upload_frame_to_texture();
         }
     }
@@ -197,24 +192,25 @@ void PPU::draw_pixel() {
     const byte scy = cached_SCY;
 
     const int32_t pipeline_x = renderX >= 6 ? renderX - 6 : 0;
+    const int32_t screen_x = pipeline_x;
 
-    const byte wx_adjusted = (wx < 7) ? 7 : wx;
-    const int32_t window_trigger_x = wx_adjusted - 7;
-    const bool window_active =
-        window_enabled && (lines >= wy) && (pipeline_x >= window_trigger_x);
+    const int32_t window_trigger_x = static_cast<int32_t>(wx) - 7;
+    const bool window_trigger_valid = wx <= 166;
+    const bool window_active = window_enabled && window_trigger_valid &&
+                               (lines >= wy) && (screen_x >= window_trigger_x);
 
     if (window_active && !wlyenabled) {
         wlyenabled = true;
     }
 
     const byte bg_tilex =
-        static_cast<byte>((static_cast<int32_t>(scx) + pipeline_x) & 0xFF);
+        static_cast<byte>((static_cast<int32_t>(scx) + screen_x) & 0xFF);
     const byte bg_tiley =
         static_cast<byte>((static_cast<int32_t>(scy) + lines) & 0xFF);
     byte window_tilex = 0;
     byte window_tiley = wly;
     if (window_active) {
-        const int32_t relative_x = pipeline_x - window_trigger_x;
+        const int32_t relative_x = screen_x - window_trigger_x;
         window_tilex = static_cast<byte>(relative_x & 0xFF);
     }
 
@@ -227,7 +223,7 @@ void PPU::draw_pixel() {
 
     ObjPixel obj_pixel{};
     if (obj_enabled) {
-        obj_pixel = sample_object_pixel();
+        obj_pixel = sample_object_pixel(screen_x);
     }
 
     const uint32_t bg_color_rgb =
@@ -267,7 +263,6 @@ void PPU::draw_pixel() {
     render_debug_point(debug_window_renderer, bg_color_rgb, pipeline_x, lines);
 #endif
 
-    const int32_t screen_x = pipeline_x;
     if (screen_x >= 0 && screen_x < static_cast<int32_t>(WINDOW_WIDTH) &&
         lines < WINDOW_HEIGHT) {
         const uint32_t frame_index =
@@ -279,15 +274,15 @@ void PPU::draw_pixel() {
     ++renderX;
 }
 
-inline PPU::ObjPixel PPU::sample_object_pixel() {
+inline PPU::ObjPixel PPU::sample_object_pixel(int screen_x) {
     ObjPixel result{};
     const byte objsize = isBitSet(cached_LCDC, 2) ? 16 : 8;
 
     for (int i = 0; i < static_cast<int>(objnum); ++i) {
         const obj sprite = objbuffer[i];
-        const int sprite_x = sprite.objx - 2;
-        const int sprite_right = sprite.objx + 6;
-        if (sprite_x > renderX || sprite_right <= renderX) {
+        const int sprite_x = static_cast<int>(sprite.objx) - 8;
+        const int sprite_right = sprite_x + 8;
+        if (screen_x < sprite_x || screen_x >= sprite_right) {
             continue;
         }
 
@@ -319,8 +314,9 @@ inline PPU::ObjPixel PPU::sample_object_pixel() {
 
         const auto [tilelow, tilehigh] =
             fetch_tile_row(tile_index, row, true, tile_bank);
-        byte bit_index = xflip ? static_cast<byte>(renderX - sprite_x)
-                               : static_cast<byte>(7 - (renderX - sprite_x));
+        const int pixel_offset = screen_x - sprite_x;
+        byte bit_index = xflip ? static_cast<byte>(pixel_offset & 0x7)
+                               : static_cast<byte>(7 - (pixel_offset & 0x7));
         bit_index &= 0x7;
         const byte mask = static_cast<byte>(1u << bit_index);
         const byte color =
@@ -431,8 +427,9 @@ void PPU::request_stat_interrupt(byte stat_bit) {
     if (!isBitSet(reg_STAT, stat_bit) || bus == nullptr) {
         return;
     }
-    bus->write(addr(IORegister::IF),
-               setBit(bus->read(addr(IORegister::IF)), 1));
+    auto& if_reg =
+        bus->IOrange[addr(IORegister::IF) - addr(MemoryRegion::IO_REGISTERS)];
+    if_reg = setBit(if_reg, 1);
 }
 
 void PPU::upload_frame_to_texture() {
@@ -512,6 +509,7 @@ void PPU::render_debug() {
 }
 #endif
 
+#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
 void PPU::dump_info() {
     std::cerr << std::hex << "dots: " << dots << '\n';
     std::cerr << "lines: " << lines << '\n';
@@ -540,6 +538,7 @@ void PPU::dump_vram() {
                   << std::bitset<8>(bus->read(i + 0x9900) & 0xFF) << " ";
     }
 }
+#endif
 
 byte PPU::read_register(half address) const {
     switch (address) {
@@ -573,6 +572,10 @@ byte PPU::read_register(half address) const {
 void PPU::write_register(half address, byte value) {
     switch (address) {
         case addr(VideoRegister::LCDC):
+            if (!isBitSet(value, 5) && isBitSet(reg_LCDC, 5)) {
+                wly = 0;
+                wlyenabled = false;
+            }
             reg_LCDC = value;
             cache_dirty = true;
             break;
@@ -607,6 +610,8 @@ void PPU::write_register(half address, byte value) {
             break;
         case addr(VideoRegister::WY):
             reg_WY = value;
+            wly = 0;
+            wlyenabled = false;
             cache_dirty = true;
             break;
         case addr(VideoRegister::WX):

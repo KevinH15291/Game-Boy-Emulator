@@ -163,7 +163,7 @@
   <body>
     <div id="controls">
       <div id="romInputLabel">
-        <input type="file" id="romInput" accept=".gb,.gbc" />
+      <input type="file" id="romInput" accept=".gb,.gbc" />
         <span class="keybinding">Ctrl+O</span>
       </div>
       <input
@@ -260,7 +260,7 @@
       const initModule = async () => {
         try {
           gbcModule = await createGBCModule({ canvas });
-          runtimeReady = true;
+        runtimeReady = true;
           handleRuntimeReady();
         } catch (error) {
           console.error("Failed to initialize GBC module", error);
@@ -339,15 +339,15 @@
 
       const updateFPS = () => {
         if (runtimeReady && gbcModule?._get_frame_count) {
-          const now = performance.now();
+        const now = performance.now();
           const currentFrameCount = gbcModule._get_frame_count();
-          const elapsed = now - lastFpsUpdate;
-          if (elapsed >= 1000) {
-            const fps = ((currentFrameCount - lastFrameCount) * 1000) / elapsed;
-            fpsEl.textContent = `FPS: ${fps.toFixed(1)}`;
-            lastFrameCount = currentFrameCount;
-            lastFpsUpdate = now;
-          }
+        const elapsed = now - lastFpsUpdate;
+        if (elapsed >= 1000) {
+          const fps = ((currentFrameCount - lastFrameCount) * 1000) / elapsed;
+          fpsEl.textContent = `FPS: ${fps.toFixed(1)}`;
+          lastFrameCount = currentFrameCount;
+          lastFpsUpdate = now;
+        }
         }
         requestAnimationFrame(updateFPS);
       };
@@ -383,16 +383,16 @@
           Math.min(100, parseInt(volumeSlider.value, 10) + delta)
         );
         volumeSlider.value = String(next);
-        volumeSlider.dispatchEvent(new Event("input"));
+            volumeSlider.dispatchEvent(new Event("input"));
       };
 
       const toggleChannelByIndex = (channelIndex) => {
-        const checkbox = document.querySelector(
+          const checkbox = document.querySelector(
           `#channelToggles input[data-channel="${channelIndex}"]`
-        );
+          );
         if (!checkbox) return;
-        checkbox.checked = !checkbox.checked;
-        checkbox.dispatchEvent(new Event("change"));
+            checkbox.checked = !checkbox.checked;
+            checkbox.dispatchEvent(new Event("change"));
       };
 
       window.addEventListener("keydown", (event) => {
@@ -532,8 +532,8 @@
         }
         if (runtimeReady && gbcModule?._set_master_volume) {
           gbcModule._set_master_volume(value / 100);
-        }
-      });
+          }
+        });
 
       initModule();
     </script>
