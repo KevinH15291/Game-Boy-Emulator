@@ -2,7 +2,7 @@
 CompileFlags:
   Add: [
     -isystem /usr/local/include,
-    -std=gnu++20,
+    -std=gnu++23,
   ]
   
 Diagnostics:

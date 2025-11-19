@@ -41,15 +41,13 @@ class PPU {
 #endif
 
     void init_window();
+    inline void io_write(half address, byte value);
 
 #if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
     void init_debug_window();
     void render_debug();
 #endif
     void mark_cache_dirty() { cache_dirty = true; }
-
-    byte read_register(half address) const;
-    void write_register(half address, byte value);
 
    private:
     friend class GBC;
@@ -60,6 +58,8 @@ class PPU {
     CgbConfig &config;
     int dots = 0, lines = 0, renderX = 0, wly = 0;
     bool wlyenabled = false;
+    int oam_scan_dot = 0;
+    size_t oam_scan_index = 0;
 
     SDL_Event event{};
     SDL_Renderer *renderer = nullptr;
@@ -102,7 +102,12 @@ class PPU {
     byte reg_OBP1 = 0;
     byte reg_LYC = 0;
 
+    inline byte &io_reg(VideoRegister reg);
+    void update_stat_register();
+
     inline void update_register_cache();
+    void perform_oam_scan_step();
+    void scan_oam_entry();
     struct BgPixel {
         byte color = 0;
         byte palette = 0;
@@ -132,4 +137,84 @@ class PPU {
     void render_debug_point(SDL_Renderer *target, uint32_t color, int x, int y);
 #endif
 };
+
+inline void PPU::io_write(half address, byte value) {
+    if (bus == nullptr) {
+        return;
+    }
+    auto &io = bus->IOrange;
+    byte &cell = io[address - addr(MemoryRegion::IO_REGISTERS)];
+    switch (address) {
+        case addr(VideoRegister::LCDC): {
+            const byte old = reg_LCDC;
+            reg_LCDC = value;
+            cell = value;
+            if (!isBitSet(reg_LCDC, 5) && isBitSet(old, 5)) {
+                wly = 0;
+                wlyenabled = false;
+            }
+            cache_dirty = true;
+            break;
+        }
+        case addr(VideoRegister::STAT): {
+            reg_STAT = static_cast<byte>((value & 0xF8) | (reg_STAT & 0x07));
+            update_stat_register();
+            cache_dirty = true;
+            break;
+        }
+        case addr(VideoRegister::SCY):
+            reg_SCY = value;
+            cell = value;
+            cache_dirty = true;
+            break;
+        case addr(VideoRegister::SCX):
+            reg_SCX = value;
+            cell = value;
+            cache_dirty = true;
+            break;
+        case addr(VideoRegister::LY):
+            cell = static_cast<byte>(lines);
+            break;
+        case addr(VideoRegister::LYC):
+            reg_LYC = value;
+            cell = value;
+            cache_dirty = true;
+            break;
+        case addr(VideoRegister::BGP):
+            reg_BGP = value;
+            cell = value;
+            cache_dirty = true;
+            break;
+        case addr(VideoRegister::OBP0):
+            reg_OBP0 = value;
+            cell = value;
+            cache_dirty = true;
+            break;
+        case addr(VideoRegister::OBP1):
+            reg_OBP1 = value;
+            cell = value;
+            cache_dirty = true;
+            break;
+        case addr(VideoRegister::WY): {
+            const byte old = reg_WY;
+            reg_WY = value;
+            cell = value;
+            if (reg_WY != old) {
+                wly = 0;
+                wlyenabled = false;
+            }
+            cache_dirty = true;
+            break;
+        }
+        case addr(VideoRegister::WX):
+            reg_WX = value;
+            cell = value;
+            cache_dirty = true;
+            break;
+        default:
+            cell = value;
+            break;
+    }
+}
+
 }  // namespace GBC

@@ -21,7 +21,7 @@ class GBC {
    public:
     explicit GBC(bool enable_window = true);
     void start();
-    void run();
+
     void start_window();
     void execute_frame();
     [[gnu::always_inline]] inline void execute_cycle();
@@ -29,6 +29,9 @@ class GBC {
 
     inline void handle_input();
     void reset_after_rom_load();
+#ifndef __EMSCRIPTEN__
+    void run();
+#endif
 #if GBC_CPU_DEBUG && !defined(__EMSCRIPTEN__)
     inline void dump_stuff();
     void log_frame_state(uint32_t frame_index);

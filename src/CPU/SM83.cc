@@ -1,6 +1,7 @@
 #include "SM83.h"
 
 #include <cassert>
+#include <cstdlib>
 #include <fstream>
 #include <stdexcept>
 
@@ -8,6 +9,12 @@
 #include "bus.h"
 #include "cycles.h"
 #include "enums.h"
+
+#ifdef __EMSCRIPTEN__
+#define THROW_ERROR(msg) std::abort()
+#else
+#define THROW_ERROR(msg) throw std::runtime_error(msg)
+#endif
 
 namespace GBC {
 
@@ -52,6 +59,11 @@ void SM83::execute() {
 
     opcode = fetch8();
     cycles += opcode_cycles[opcode];
+
+    if (halt_bug) {
+        halt_bug = false;
+        --pc;
+    }
 
     if (opcode <= 0x3F) switch (opcode) {
             case 0x00:
@@ -253,6 +265,9 @@ void SM83::execute() {
         byte src = getBitRange(opcode, 0, 3);
 
         if (opcode == 0x76) {
+            if (!IME && pending_interrupts != 0) {
+                halt_bug = true;
+            }
             instrHALT();
         } else if (dest == 6) {
             instrLdHL_FromR8(src);
@@ -290,7 +305,7 @@ void SM83::execute() {
                 instrCpA_R8(reg);
                 return;
             default:
-                throw std::runtime_error("Invalid ALU opcode");
+                THROW_ERROR("Invalid ALU opcode");
                 return;
         }
     } else {
@@ -353,7 +368,7 @@ void SM83::execute() {
                 instrJP_Cond_Imm16(!getCarryFlag());
                 return;
             case 0xD3:
-                throw std::runtime_error("Opcode D3 not used");
+                THROW_ERROR("Opcode D3 not used");
                 return;
             case 0xD4:  // CALL NC, d16
                 instrCALL_Cond_Imm16(!getCarryFlag());
@@ -377,13 +392,13 @@ void SM83::execute() {
                 instrJP_Cond_Imm16(getCarryFlag());
                 return;
             case 0xDB:
-                throw std::runtime_error("Opcode DB not used");
+                THROW_ERROR("Opcode DB not used");
                 return;
             case 0xDC:  // CALL C, d16
                 instrCALL_Cond_Imm16(getCarryFlag());
                 return;
             case 0xDD:
-                throw std::runtime_error("Opcode DD not used");
+                THROW_ERROR("Opcode DD not used");
                 return;
             case 0xDE:  // SBC A, d8
                 instrSbcA_Imm8();
@@ -401,10 +416,10 @@ void SM83::execute() {
                 instrLDH_C_A();
                 return;
             case 0xE3:
-                throw std::runtime_error("Opcode E3 not used");
+                THROW_ERROR("Opcode E3 not used");
                 return;
             case 0xE4:
-                throw std::runtime_error("Opcode E4 not used");
+                THROW_ERROR("Opcode E4 not used");
                 return;
             case 0xE5:  // PUSH HL
                 instrPUSH_R16(2);
@@ -425,13 +440,13 @@ void SM83::execute() {
                 instrLD_Imm16_A();
                 return;
             case 0xEB:
-                throw std::runtime_error("Opcode EB not used");
+                THROW_ERROR("Opcode EB not used");
                 return;
             case 0xEC:
-                throw std::runtime_error("Opcode EC not used");
+                THROW_ERROR("Opcode EC not used");
                 return;
             case 0xED:
-                throw std::runtime_error("Opcode ED not used");
+                THROW_ERROR("Opcode ED not used");
                 return;
             case 0xEE:  // XOR A, d8
                 instrXorA_Imm8();
@@ -452,7 +467,7 @@ void SM83::execute() {
                 instrDI();
                 return;
             case 0xF4:
-                throw std::runtime_error("Opcode F4 not used");
+                THROW_ERROR("Opcode F4 not used");
                 return;
             case 0xF5:  // PUSH AF
                 instrPUSH_R16(3);
@@ -476,10 +491,10 @@ void SM83::execute() {
                 instrEI();
                 return;
             case 0xFC:
-                throw std::runtime_error("Opcode FC not used");
+                THROW_ERROR("Opcode FC not used");
                 return;
             case 0xFD:
-                throw std::runtime_error("Opcode FD not used");
+                THROW_ERROR("Opcode FD not used");
                 return;
             case 0xFE:  // CP A, d8
                 instrCpA_Imm8();
@@ -488,7 +503,7 @@ void SM83::execute() {
                 instrRST(0x38);
                 return;
             default:
-                throw std::runtime_error("Invalid opcode in 0xC0-0xFF range");
+                THROW_ERROR("Invalid opcode in 0xC0-0xFF range");
         }
     }
 }
@@ -524,7 +539,7 @@ inline void SM83::executeCB() {
                     instrSRL_R8(getBitRange(cbOpcode, 0, 3));
                     break;
                 default:
-                    throw std::runtime_error("Invalid CB rotation opcode");
+                    THROW_ERROR("Invalid CB rotation opcode");
             }
             break;
         case 1:  // BIT b, r
@@ -540,7 +555,7 @@ inline void SM83::executeCB() {
                         getBitRange(cbOpcode, 0, 3));
             break;
         default:
-            throw std::runtime_error("Invalid CB opcode group");
+            THROW_ERROR("Invalid CB opcode group");
     }
 }
 
@@ -678,9 +693,6 @@ inline void SM83::instrSTOP() {
         return;
     }
     halted = true;
-    divcounter = 0;
-    memory->IOrange[addr(IORegister::DIV) - addr(MemoryRegion::IO_REGISTERS)] =
-        0;
 }
 
 inline void SM83::instrJR_Cond_Imm8(bool condition) {
@@ -761,12 +773,7 @@ inline void SM83::instrLdR8_Imm8(byte reg) { r8[reg] = fetch8(); }
 
 inline void SM83::instrLdImm8_HL() { memory->write(getHL(), fetch8()); }
 
-inline void SM83::instrHALT() {
-    halted = true;
-    memory->IOrange[addr(IORegister::DIV) - addr(MemoryRegion::IO_REGISTERS)] =
-        0;
-    divcounter = 0;
-}
+inline void SM83::instrHALT() { halted = true; }
 
 inline void SM83::instrLdR8_FromHL(byte reg) {
     r8[reg] = memory->read(getHL());
@@ -1264,7 +1271,7 @@ inline void SM83::instrSET_R8(byte bit, byte reg) {
 
 inline void SM83::store16t1(byte reg16, half val) {
     if (reg16 > 3) {
-        throw std::runtime_error("store16t1: invalid register index");
+        THROW_ERROR("store16t1: invalid register index");
     }
     switch (reg16) {
         case 0:
@@ -1280,7 +1287,7 @@ inline void SM83::store16t1(byte reg16, half val) {
             sp = val;
             return;
         default:
-            throw std::runtime_error("store16t1: invalid register index");
+            THROW_ERROR("store16t1: invalid register index");
     }
 }
 
@@ -1299,7 +1306,7 @@ inline void SM83::store16t2(byte reg16, half val) {
             setAF(val);
             return;
         default:
-            throw std::runtime_error("store16t2: invalid register index");
+            THROW_ERROR("store16t2: invalid register index");
     }
 }
 
@@ -1314,7 +1321,7 @@ inline half SM83::load16t1(byte reg16) {
         case 3:
             return sp;
         default:
-            throw std::runtime_error("load16t1: invalid register index");
+            THROW_ERROR("load16t1: invalid register index");
     }
 }
 
@@ -1329,7 +1336,7 @@ inline half SM83::load16t2(byte reg16) {
         case 3:
             return getAF();
         default:
-            throw std::runtime_error("load16t2: invalid register index");
+            THROW_ERROR("load16t2: invalid register index");
     }
 }
 

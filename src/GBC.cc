@@ -93,6 +93,7 @@ void GBC::reset_after_rom_load() {
     addresses.sync_key_registers();
 }
 
+#ifndef __EMSCRIPTEN__
 void GBC::run() {
     const auto initialize_registers = [this]() {
         if (config.cgb_mode) {
@@ -124,10 +125,10 @@ void GBC::run() {
     }
     bool breakflag = false;
 
-    constexpr double FRAME_TIME_MS = 1000.0 / 59.7275;
+    constexpr double FRAME_TIME_MS = 1000.0 / 60;
     constexpr auto FRAME_TIME_NS =
         std::chrono::duration_cast<std::chrono::nanoseconds>(
-            std::chrono::duration<double>(1.0 / 59.7275));
+            std::chrono::duration<double>(1.0 / 60));
 
     while (true) {
         auto frame_start = std::chrono::high_resolution_clock::now();
@@ -144,11 +145,7 @@ void GBC::run() {
         }
 
         while (SDL_PollEvent(&ppu.event)) {
-#ifdef __EMSCRIPTEN__
-            if (ppu.event.type == SDL_QUIT) breakflag = true;
-#else
             if (ppu.event.type == SDL_EVENT_QUIT) breakflag = true;
-#endif
         }
 
         for (int j = 0; j < 4560; ++j) {
@@ -164,6 +161,7 @@ void GBC::run() {
         }
     }
 }
+#endif
 
 inline void GBC::handle_input() {
 #ifndef __EMSCRIPTEN__
@@ -235,18 +233,16 @@ inline void GBC::handle_input() {
 void GBC::execute_frame() {
     ++frame;
     handle_input();
-    for (int i = 0; i < 70224;) {
-        int batch_size = 100;
-        for (int j = 0; j < batch_size && i < 70224; ++j, ++i) {
-            ppu.execute_cycle();
-            apu.execute_cycle();
+    constexpr int CYCLES_PER_FRAME = 70224;
+    for (int i = 0; i < CYCLES_PER_FRAME; ++i) {
+        ppu.execute_cycle();
+        apu.execute_cycle();
+        cpu.execute();
+        if (config.double_speed) {
             cpu.execute();
-            if (config.double_speed) {
-                cpu.execute();
-                cycle_count += 2;
-            } else {
-                ++cycle_count;
-            }
+            cycle_count += 2;
+        } else {
+            ++cycle_count;
         }
     }
     apu.flush_audio();

@@ -34,10 +34,12 @@ class SM83 {
     byte cycles = 0;
     bool IME = false, IMEdelay = false, halted = false, stathigh = false;
     bool tima_written_this_cycle = false;
+    bool halt_bug = false;
 
     void execute();
     inline void executeCB();
     void reset_timer_counter() {
+        divcounter = 0;
         timacounter = 0;
         tima_written_this_cycle = false;
     }
@@ -100,9 +102,9 @@ class SM83 {
 
     [[gnu::always_inline]] inline byte fetch8() { return memory->read(pc++); }
     [[gnu::always_inline]] inline half fetch16() {
-        half result = memory->read(pc) | (memory->read(pc + 1) << 8);
-        pc += 2;
-        return result;
+        byte low = fetch8();
+        byte high = fetch8();
+        return low | (static_cast<half>(high) << 8);
     }
 
     inline bool halfCarryAdd(byte a, byte b) {

@@ -806,17 +806,9 @@ void APU::queue_audio(float left, float right) {
     if (bufferedSamples >= AUDIO_BUFFER_SAMPLES) {
 #ifdef __EMSCRIPTEN__
         Uint32 queued = SDL_GetQueuedAudioSize(audioDevice);
-        constexpr Uint32 MAX_QUEUED =
-            AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 10;
-        constexpr Uint32 MIN_QUEUED =
-            AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 2;
-        if (queued < MIN_QUEUED) {
-            SDL_QueueAudio(
-                audioDevice, sampleBuffer.data(),
-                static_cast<Uint32>(bufferedSamples * sizeof(float) * 2));
-            bufferedSamples = 0;
-            return;
-        }
+        constexpr Uint32 BYTES_PER_BUFFER =
+            AUDIO_BUFFER_SAMPLES * sizeof(float) * 2;
+        constexpr Uint32 MAX_QUEUED = BYTES_PER_BUFFER * 5;
         if (queued > MAX_QUEUED) {
             bufferedSamples = 0;
             return;
@@ -925,6 +917,7 @@ void APU::power_off() {
     ch2 = SquareChannel{};
     ch3 = WaveChannel{};
     ch4 = NoiseChannel{};
+    waveRAM.fill(0);
 
     write_reg(AudioRegister::NR10, 0);
     write_reg(AudioRegister::NR11, 0);
@@ -1146,6 +1139,9 @@ void APU::write_register(half address, byte value) {
 }
 
 byte APU::read_wave_byte(half address) const {
+    if (!masterEnabled) {
+        return 0xFF;
+    }
     if (address >= 0xFF30 && address <= 0xFF3F) {
         byte index = address - 0xFF30;
         if (ch3.enabled && ch3.dacEnabled) {
@@ -1167,6 +1163,10 @@ byte APU::read_wave_byte(half address) const {
 }
 
 void APU::write_wave_byte(half address, byte value) {
+    if (!masterEnabled) {
+        return;
+    }
+
     if (address >= 0xFF30 && address <= 0xFF3F) {
         waveRAM[address - 0xFF30] = value;
     }

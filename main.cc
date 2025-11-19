@@ -67,7 +67,31 @@ int import_save(uint8_t* data, size_t length) {
 
 void emscripten_frame_loop(void* arg) {
     GBC::GBC* gbc = static_cast<GBC::GBC*>(arg);
-    gbc->execute_frame();
+
+    static double lastTime = 0.0;
+    static double accumulator = 0.0;
+    constexpr double stepMs = 1000.0 / 60.0;
+    constexpr double maxDtMs = 100.0;
+
+    if (lastTime == 0.0) {
+        lastTime = emscripten_get_now();
+        return;
+    }
+
+    double now = emscripten_get_now();
+    double dt = now - lastTime;
+    lastTime = now;
+
+    if (dt > maxDtMs) {
+        dt = maxDtMs;
+    }
+
+    accumulator += dt;
+
+    while (accumulator >= stepMs) {
+        gbc->execute_frame();
+        accumulator -= stepMs;
+    }
 }
 
 void shutdown_emulator() {
@@ -81,7 +105,8 @@ void shutdown_emulator() {
 int main(int /*argc*/, char*[] /*argv*/) {
     GBC::GBC gbc(true);
     g_gbc = &gbc;
-    emscripten_set_main_loop_arg(emscripten_frame_loop, &gbc, 60, 1);
+    emscripten_set_main_loop_timing(EM_TIMING_RAF, 1);
+    emscripten_set_main_loop_arg(emscripten_frame_loop, &gbc, 0, 1);
     return 0;
 }
 #else

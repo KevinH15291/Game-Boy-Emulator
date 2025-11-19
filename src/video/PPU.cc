@@ -1,6 +1,7 @@
 #include "PPU.h"
 
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <utility>
 
@@ -14,10 +15,10 @@ void PPU::init_window() {
 #ifdef __EMSCRIPTEN__
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
     window = SDL_CreateWindow("(GBC) hello window", SDL_WINDOWPOS_UNDEFINED,
-                              SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH * 8,
-                              WINDOW_HEIGHT * 8, SDL_WINDOW_RESIZABLE);
-    renderer = SDL_CreateRenderer(window, -1, 0);
-    SDL_RenderSetLogicalSize(renderer, WINDOW_WIDTH * 8, WINDOW_HEIGHT * 8);
+                              SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH,
+                              WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE);
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    SDL_RenderSetLogicalSize(renderer, WINDOW_WIDTH, WINDOW_HEIGHT);
 #else
     SDL_CreateWindowAndRenderer("(GBC) hello window", WINDOW_WIDTH * 4,
                                 WINDOW_HEIGHT * 4, SDL_WINDOW_RESIZABLE,
@@ -27,10 +28,14 @@ void PPU::init_window() {
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     SDL_RenderClear(renderer);
 
+#ifdef __EMSCRIPTEN__
+    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                                SDL_TEXTUREACCESS_STREAMING, WINDOW_WIDTH,
+                                WINDOW_HEIGHT);
+#else
     texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24,
                                 SDL_TEXTUREACCESS_STREAMING, WINDOW_WIDTH,
                                 WINDOW_HEIGHT);
-#ifndef __EMSCRIPTEN__
     SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
 #endif
 }
@@ -86,6 +91,21 @@ PPU::~PPU() {
     SDL_Quit();
 }
 
+inline byte& PPU::io_reg(VideoRegister reg) {
+    return bus->IOrange[addr(reg) - addr(MemoryRegion::IO_REGISTERS)];
+}
+
+void PPU::update_stat_register() {
+    if (bus == nullptr) {
+        return;
+    }
+    const byte high = static_cast<byte>(reg_STAT & 0xF8);
+    const byte coincidence = static_cast<byte>((lyc_match ? 1 : 0) << 2);
+    const byte mode_bits = static_cast<byte>(static_cast<byte>(mode) & 0x03);
+    reg_STAT = static_cast<byte>(high | coincidence | mode_bits);
+    io_reg(VideoRegister::STAT) = reg_STAT;
+}
+
 inline void PPU::update_register_cache() {
     cached_LCDC = reg_LCDC;
     cached_BGP = reg_BGP;
@@ -97,6 +117,7 @@ inline void PPU::update_register_cache() {
     cached_WY = reg_WY;
     cached_LYC = reg_LYC;
     lyc_match = (lines == cached_LYC);
+    update_stat_register();
     cache_dirty = false;
 }
 
@@ -104,21 +125,31 @@ void PPU::execute_cycle() {
     if (dots >= 456) {
         ++lines;
         lyc_match = (lines == cached_LYC);
+        update_stat_register();
     }
     dots %= 456;
     lines %= 154;
-
     if (dots == 0 || cache_dirty) {
         update_register_cache();
     }
-
     if (!isBitSet(cached_LCDC, 7)) {
+        lines = 0;
+        dots = 0;
+        lyc_match = (lines == cached_LYC);
+        update_stat_register();
+        if (bus != nullptr) {
+            io_reg(VideoRegister::LY) = 0;
+            auto& if_reg = bus->IOrange[addr(IORegister::IF) -
+                                        addr(MemoryRegion::IO_REGISTERS)];
+            if_reg = clearBit(if_reg, 1);
+        }
         set_mode(RenderingState::hblank, false);
-        auto& if_reg = bus->IOrange[addr(IORegister::IF) -
-                                    addr(MemoryRegion::IO_REGISTERS)];
-        if_reg = clearBit(if_reg, 1);
         return;
     }
+    if (bus != nullptr) {
+        io_reg(VideoRegister::LY) = static_cast<byte>(lines);
+    }
+
     auto& if_reg =
         bus->IOrange[addr(IORegister::IF) - addr(MemoryRegion::IO_REGISTERS)];
     if_reg = clearBit(if_reg, 1);
@@ -130,24 +161,11 @@ void PPU::execute_cycle() {
         if (dots < 80) {
             if (mode != RenderingState::OAMscan) {
                 objnum = 0;
+                oam_scan_dot = 0;
+                oam_scan_index = 0;
                 set_mode(RenderingState::OAMscan);
-                byte objsize = isBitSet(cached_LCDC, 2) ? 16 : 8;
-
-                for (int16_t i = 0x00; i < 0x9F; i += 4) {
-                    byte objy = bus->OAM[i] - 16, objx = bus->OAM[i + 1],
-                         index = bus->OAM[i + 2], flags = bus->OAM[i + 3];
-                    if (objy <= lines && objy + objsize > lines) {
-                        objbuffer[objnum].objx = objx,
-                        objbuffer[objnum].objy = objy,
-                        objbuffer[objnum].index = index,
-                        objbuffer[objnum].flags = flags;
-                        ++objnum;
-                    }
-
-                    if (objnum == 10) break;
-                }
             }
-
+            perform_oam_scan_step();
         } else if (dots < 252) {
             if (mode != RenderingState::draw) {
                 set_mode(RenderingState::draw, false);
@@ -227,8 +245,10 @@ void PPU::draw_pixel() {
         obj_pixel = sample_object_pixel(screen_x);
     }
 
-    const uint32_t bg_color_rgb =
-        bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
+    uint32_t bg_color_rgb = bus->get_bg_color(bg_pixel.palette, bg_pixel.color);
+#ifdef __EMSCRIPTEN__
+    bg_color_rgb = (0xFFu << 24) | bg_color_rgb;
+#endif
     uint32_t final_color = bg_color_rgb;
     const bool sprite_visible = obj_pixel.has_pixel && obj_pixel.color != 0;
     const bool bg_has_color = bg_pixel.color != 0;
@@ -238,6 +258,9 @@ void PPU::draw_pixel() {
         if (!obj_color_cached) {
             obj_color_rgb =
                 bus->get_obj_color(obj_pixel.palette, obj_pixel.color);
+#ifdef __EMSCRIPTEN__
+            obj_color_rgb = (0xFFu << 24) | obj_color_rgb;
+#endif
             obj_color_cached = true;
         }
         return obj_color_rgb;
@@ -423,8 +446,7 @@ std::pair<byte, byte> PPU::fetch_tile_row(
 
 void PPU::set_mode(RenderingState new_mode, bool allow_interrupt) {
     mode = new_mode;
-    reg_STAT = static_cast<byte>(
-        (reg_STAT & 0xF8) | static_cast<byte>(new_mode) | (lyc_match << 2));
+    update_stat_register();
     if (!allow_interrupt) {
         return;
     }
@@ -452,6 +474,44 @@ void PPU::request_stat_interrupt(byte stat_bit) {
     if_reg = setBit(if_reg, 1);
 }
 
+void PPU::perform_oam_scan_step() {
+    if (mode != RenderingState::OAMscan) {
+        return;
+    }
+    if ((oam_scan_dot & 1) == 0) {
+        scan_oam_entry();
+    }
+    ++oam_scan_dot;
+}
+
+void PPU::scan_oam_entry() {
+    if (bus == nullptr) {
+        return;
+    }
+    if (oam_scan_index >= OAM_SIZE) {
+        return;
+    }
+    if (objnum >= static_cast<int>(objbuffer.size())) {
+        oam_scan_index = std::min<size_t>(oam_scan_index + 4, OAM_SIZE);
+        return;
+    }
+
+    const byte objsize = isBitSet(cached_LCDC, 2) ? 16 : 8;
+    const byte objy = bus->OAM[oam_scan_index] - 16;
+    const byte objx = bus->OAM[oam_scan_index + 1];
+    const byte index = bus->OAM[oam_scan_index + 2];
+    const byte flags = bus->OAM[oam_scan_index + 3];
+    oam_scan_index = std::min<size_t>(oam_scan_index + 4, OAM_SIZE);
+
+    if (objy <= lines && objy + objsize > lines) {
+        objbuffer[objnum].objx = objx;
+        objbuffer[objnum].objy = objy;
+        objbuffer[objnum].index = index;
+        objbuffer[objnum].flags = flags;
+        ++objnum;
+    }
+}
+
 void PPU::upload_frame_to_texture() {
     if (renderer == nullptr) {
         return;
@@ -467,11 +527,18 @@ void PPU::upload_frame_to_texture() {
     if (SDL_LockTexture(texture, nullptr, &pixels, &pitch) != 0) {
         return;
     }
+    auto* dst = static_cast<std::uint8_t*>(pixels);
+    const auto* src32 = frame_rgb.data();
+    const int row_bytes = WINDOW_WIDTH * sizeof(std::uint32_t);
+    for (int y = 0; y < static_cast<int>(WINDOW_HEIGHT); ++y) {
+        std::memcpy(dst + y * pitch, src32 + y * WINDOW_WIDTH, row_bytes);
+    }
+    SDL_UnlockTexture(texture);
+    SDL_RenderCopy(renderer, texture, nullptr, nullptr);
 #else
     if (!SDL_LockTexture(texture, nullptr, &pixels, &pitch)) {
         return;
     }
-#endif
     auto* pixel_data = static_cast<byte*>(pixels);
     for (int y = 0; y < static_cast<int>(WINDOW_HEIGHT); ++y) {
         for (int x = 0; x < static_cast<int>(WINDOW_WIDTH); ++x) {
@@ -483,9 +550,6 @@ void PPU::upload_frame_to_texture() {
         }
     }
     SDL_UnlockTexture(texture);
-#ifdef __EMSCRIPTEN__
-    SDL_RenderCopy(renderer, texture, nullptr, nullptr);
-#else
     SDL_RenderTexture(renderer, texture, nullptr, nullptr);
 #endif
     SDL_RenderPresent(renderer);
@@ -560,84 +624,4 @@ void PPU::dump_vram() {
 }
 #endif
 
-byte PPU::read_register(half address) const {
-    switch (address) {
-        case addr(VideoRegister::LCDC):
-            return reg_LCDC;
-        case addr(VideoRegister::STAT):
-            return reg_STAT | (lyc_match << 2);
-        case addr(VideoRegister::SCY):
-            return reg_SCY;
-        case addr(VideoRegister::SCX):
-            return reg_SCX;
-        case addr(VideoRegister::LY):
-            return lines;
-        case addr(VideoRegister::LYC):
-            return reg_LYC;
-        case addr(VideoRegister::BGP):
-            return reg_BGP;
-        case addr(VideoRegister::OBP0):
-            return reg_OBP0;
-        case addr(VideoRegister::OBP1):
-            return reg_OBP1;
-        case addr(VideoRegister::WY):
-            return reg_WY;
-        case addr(VideoRegister::WX):
-            return reg_WX;
-        default:
-            return 0xFF;
-    }
-}
-
-void PPU::write_register(half address, byte value) {
-    switch (address) {
-        case addr(VideoRegister::LCDC):
-            if (!isBitSet(value, 5) && isBitSet(reg_LCDC, 5)) {
-                wly = 0;
-                wlyenabled = false;
-            }
-            reg_LCDC = value;
-            cache_dirty = true;
-            break;
-        case addr(VideoRegister::STAT):
-            reg_STAT = (value & 0xF8) | (reg_STAT & 0x07);
-            break;
-        case addr(VideoRegister::SCY):
-            reg_SCY = value;
-            cache_dirty = true;
-            break;
-        case addr(VideoRegister::SCX):
-            reg_SCX = value;
-            cache_dirty = true;
-            break;
-        case addr(VideoRegister::LY):
-            break;
-        case addr(VideoRegister::LYC):
-            reg_LYC = value;
-            cache_dirty = true;
-            break;
-        case addr(VideoRegister::BGP):
-            reg_BGP = value;
-            cache_dirty = true;
-            break;
-        case addr(VideoRegister::OBP0):
-            reg_OBP0 = value;
-            cache_dirty = true;
-            break;
-        case addr(VideoRegister::OBP1):
-            reg_OBP1 = value;
-            cache_dirty = true;
-            break;
-        case addr(VideoRegister::WY):
-            reg_WY = value;
-            wly = 0;
-            wlyenabled = false;
-            cache_dirty = true;
-            break;
-        case addr(VideoRegister::WX):
-            reg_WX = value;
-            cache_dirty = true;
-            break;
-    }
-}
 }  // namespace GBC

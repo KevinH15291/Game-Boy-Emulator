@@ -159,11 +159,6 @@ class APU {
 #endif
     uint32_t exportedSampleCount = 0;
 
-   private:
-    byte read_reg(AudioRegister reg) const;
-    void write_reg(AudioRegister reg, byte value);
-    std::array<byte, 16> waveRAM{};
-
    public:
     byte read_register(half address) const;
     void write_register(half address, byte value);
@@ -171,6 +166,11 @@ class APU {
     void write_wave_byte(half address, byte value);
     bool is_wave_active() const;
     byte get_nr52_status() const;
+
+   private:
+    byte read_reg(AudioRegister reg) const;
+    void write_reg(AudioRegister reg, byte value);
+    std::array<byte, 16> waveRAM{};
 
 #ifdef __EMSCRIPTEN__
     SDL_AudioDeviceID audioDevice = 0;

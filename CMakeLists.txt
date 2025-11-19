@@ -59,12 +59,22 @@ set(SOURCES
 add_executable(GBC ${SOURCES})
 
 if(EMSCRIPTEN)
-    target_compile_options(GBC PUBLIC -sUSE_SDL=2 -O3)
+    target_compile_options(GBC PUBLIC 
+        -sUSE_SDL=2 
+        -O3 
+        -flto 
+        -fno-rtti 
+        -fno-exceptions
+        -ffast-math
+        -fno-math-errno
+        -fno-trapping-math
+        -fno-unwind-tables
+        -fno-asynchronous-unwind-tables)
     target_link_options(GBC PUBLIC 
+        -O3
         -flto
         -sUSE_SDL=2
         -sSTACK_SIZE=2097152
-        -sMAXIMUM_MEMORY=67108864
         -sALLOW_MEMORY_GROWTH=1
         -sASSERTIONS=0
         -sDISABLE_EXCEPTION_CATCHING=1
@@ -72,6 +82,8 @@ if(EMSCRIPTEN)
         -sMODULARIZE=1
         -sEXPORT_ES6=1
         -sEXIT_RUNTIME=1
+        -sENVIRONMENT='web'
+        --closure 1
         -sEXPORT_NAME=createGBCModule
         -sEXPORTED_FUNCTIONS=_main,_upload_rom,_set_button_state,_set_channel_muted,_is_channel_muted,_set_master_volume,_get_master_volume,_get_frame_count,_get_cart_ram_ptr,_get_cart_ram_size,_import_save,_shutdown_emulator,_malloc,_free
         -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,writeArrayToMemory,HEAPU8,HEAP8
