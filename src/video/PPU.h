@@ -48,7 +48,7 @@ class PPU {
     address_bus *bus;
     CgbConfig &config;
     int dots = 0, lines = 0, renderX = 0, wly = 0;
-    bool wlyenabled = false;
+    bool window_vert_active = false;
     int oam_scan_dot = 0;
     size_t oam_scan_index = 0;
     bool hdma_done_this_line = false;
@@ -166,9 +166,10 @@ inline void PPU::io_write(half address, byte value) {
             const byte old = reg_LCDC;
             reg_LCDC = value;
             cell = value;
-            if (isBitSet(old, 5) != isBitSet(reg_LCDC, 5)) {
-                wly = 0;
-                wlyenabled = false;
+            const bool old_win_enable = isBitSet(old, 5);
+            const bool new_win_enable = isBitSet(reg_LCDC, 5);
+            if (old_win_enable && !new_win_enable) {
+                window_vert_active = false;
             }
             cache_dirty = true;
             break;
@@ -212,16 +213,11 @@ inline void PPU::io_write(half address, byte value) {
             cell = value;
             cache_dirty = true;
             break;
-        case addr(VideoRegister::WY): {
-            if (reg_WY != value) {
-                wly = 0;
-                wlyenabled = false;
-            }
+        case addr(VideoRegister::WY):
             reg_WY = value;
             cell = value;
             cache_dirty = true;
             break;
-        }
         case addr(VideoRegister::WX):
             reg_WX = value;
             cell = value;

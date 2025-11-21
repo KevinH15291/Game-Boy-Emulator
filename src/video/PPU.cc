@@ -13,8 +13,9 @@ namespace GBC {
 void PPU::init_window() {
     SDL_Init(SDL_INIT_VIDEO);
     SDL_SetHint("SDL_RENDERER_SCALE_QUALITY", "0");
-    SDL_CreateWindowAndRenderer("(GBC) hello window", 640, 576,
-                                SDL_WINDOW_RESIZABLE, &window, &renderer);
+    SDL_CreateWindowAndRenderer("(GBC) hello window", WINDOW_WIDTH,
+                                WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE, &window,
+                                &renderer);
     SDL_SetRenderLogicalPresentation(renderer, WINDOW_WIDTH, WINDOW_HEIGHT,
                                      SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
     texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
@@ -214,6 +215,21 @@ void PPU::execute_cycle() {
     if (dots == 0 || cache_dirty) {
         update_register_cache();
     }
+    if (dots == 0) {
+        const bool lcd_on = isBitSet(cached_LCDC, 7);
+        const bool window_enable = isBitSet(cached_LCDC, 5);
+
+        if (!lcd_on || !window_enable || lines >= 144) {
+            window_vert_active = false;
+        } else {
+            if (lines == cached_WY) {
+                window_vert_active = true;
+                wly = 0;
+            } else if (window_vert_active) {
+                ++wly;
+            }
+        }
+    }
     if (!isBitSet(cached_LCDC, 7)) {
         lines = 0;
         dots = 0;
@@ -228,6 +244,7 @@ void PPU::execute_cycle() {
             if_reg = clearBit(if_reg, 1);
         }
         set_mode(RenderingState::hblank);
+        window_vert_active = false;
         return;
     }
     if (bus != nullptr) {
@@ -247,7 +264,6 @@ void PPU::execute_cycle() {
             if (mode != RenderingState::draw) {
                 set_mode(RenderingState::draw);
                 renderX = 0;  // Reset renderX at start of draw phase
-                wlyenabled = false;
             }
 
             draw_pixel();
@@ -255,9 +271,6 @@ void PPU::execute_cycle() {
             if (mode != RenderingState::hblank) {
                 set_mode(RenderingState::hblank);
                 renderX = 0;
-                if (wlyenabled) {
-                    ++wly;
-                }
             }
             // Call HDMA only once per H-Blank period
             if (!hdma_done_this_line && bus != nullptr) {
@@ -285,21 +298,17 @@ void PPU::draw_pixel() {
     const bool window_enabled = isBitSet(cached_LCDC, 5);
 
     const byte wx = cached_WX;
-    const byte wy = cached_WY;
     const byte scx = cached_SCX;
     const byte scy = cached_SCY;
 
-    const int32_t pipeline_x = renderX >= 6 ? renderX - 6 : 0;
-    const int32_t screen_x = pipeline_x;
+    const int32_t screen_x = static_cast<int32_t>(renderX);
 
     const int32_t window_trigger_x = static_cast<int32_t>(wx) - 7;
     const bool window_trigger_valid = wx <= 166;
+    const bool window_vert_line = window_vert_active;
     const bool window_active = window_enabled && window_trigger_valid &&
-                               (lines >= wy) && (screen_x >= window_trigger_x);
-
-    if (window_active && !wlyenabled) {
-        wlyenabled = true;
-    }
+                               window_vert_line &&
+                               (screen_x >= window_trigger_x);
 
     const byte bg_tilex =
         static_cast<byte>((static_cast<int32_t>(scx) + screen_x) & 0xFF);
@@ -632,8 +641,6 @@ void PPU::upload_frame_to_texture() {
 void PPU::present() {
     if (renderer) {
 #ifdef __EMSCRIPTEN__
-        SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255);  // Blue background
-        SDL_RenderClear(renderer);
         if (texture) {
             SDL_RenderTexture(renderer, texture, nullptr, nullptr);
         }

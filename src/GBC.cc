@@ -85,7 +85,7 @@ void GBC::reset_after_rom_load() {
     ppu.dots = 0;
     ppu.renderX = 0;
     ppu.wly = 0;
-    ppu.wlyenabled = false;
+    ppu.window_vert_active = false;
     apu.reset();
     cycle_count = 0;
     config.double_speed = false;
