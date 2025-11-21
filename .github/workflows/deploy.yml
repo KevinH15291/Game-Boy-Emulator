@@ -29,14 +29,6 @@ jobs:
         with:
           version: latest
 
-      - name: Cache build artifacts
-        uses: actions/cache@v4
-        with:
-          path: build_wasm
-          key: wasm-build-${{ runner.os }}-${{ hashFiles('CMakeLists.txt', '**/*.h', '**/*.cc') }}
-          restore-keys: |
-            wasm-build-${{ runner.os }}-
-
       - name: Configure CMake
         run: |
           emcmake cmake -B build_wasm -S . \
