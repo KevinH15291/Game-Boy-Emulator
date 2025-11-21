@@ -176,19 +176,23 @@ void address_bus::load_ROM_buffer(const byte* data, size_t length) {
     }
 }
 
+void address_bus::set_boot_complete(bool completed) { booting = !completed; }
+#endif
+
 void address_bus::load_RAM_buffer(const byte* data, size_t length) {
+    if (data == nullptr) {
+        return;
+    }
     size_t copy_size = std::min(length, static_cast<size_t>(CART_RAM_SIZE));
     std::memcpy(cartRAM.data(), data, copy_size);
 }
-
-void address_bus::set_boot_complete(bool completed) { booting = !completed; }
-#endif
 
 void address_bus::reset_MBC_state() {
     rom_bank = 1;
     eram_bank = ExternalRamBank::Bank0;
     bank_mode = BankMode::ROM;
     RAMenable = 0;
+    mbc7_ram_enable_secondary = 0;
     latch_write = 0;
     rtc_selected_register = 0;
     rtc_halted = false;
@@ -274,6 +278,9 @@ void address_bus::writeMBC3(half address, byte value) {
         } else if (value >= 0x08 && value <= 0x0C) {
             rtc_selected_register = value;
             eram_bank = ExternalRamBank::Bank0;
+        } else {
+            rtc_selected_register = 0;
+            eram_bank = ExternalRamBank::Bank0;
         }
         return;
     }
@@ -324,6 +331,14 @@ void address_bus::writeMBC5(half address, byte value) {
     }
 }
 
+// WARNING: MBC6 implementation is incomplete and incorrect
+// MBC6 is extremely rare (only 2 games: Net de Get and Pocket Bomberman)
+// Correct implementation requires:
+// - Two separate 8KB ROM banks (A at 4000-5FFF, B at 6000-7FFF)
+// - Two separate 4KB RAM banks (A at A000-AFFF, B at B000-BFFF)
+// - Fine-grained register mapping (0000-03FF, 0400-07FF, 0800-0BFF, etc.)
+// - Flash memory support with erase/program operations
+// Current implementation is a placeholder for basic compatibility
 void address_bus::writeMBC6(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
         RAMenable = (value & 0x0F) == 0x0A;
@@ -348,24 +363,29 @@ void address_bus::writeMBC6(half address, byte value) {
 
 void address_bus::writeMBC7(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
+        // MBC7 first RAM enable: write $0A to enable
         RAMenable = (value & 0x0F) == 0x0A;
         return;
     }
 
-    if (address >= 0x2000 && address <= 0x2FFF) {
+    if (address >= 0x2000 && address <= 0x3FFF) {
+        // ROM bank selection (extended to full 0x2000-0x3FFF range)
         rom_bank = value;
         if (rom_bank == 0) rom_bank = 1;
         return;
     }
 
     if (address >= 0x4000 && address <= 0x5FFF) {
-        eram_bank = static_cast<ExternalRamBank>(value & 0x0F);
+        // MBC7 second RAM enable: write $40 to enable (both must be enabled)
+        mbc7_ram_enable_secondary = (value == 0x40);
         return;
     }
 }
 
 void address_bus::writeHuC1(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
+        // HuC1 IR/RAM mode selection: write $0E for IR mode, else RAM mode
+        // Some games use $0A/$00, so we approximate with RAM enable behavior
         RAMenable = (value & 0x0F) == 0x0A;
         return;
     }
@@ -382,10 +402,7 @@ void address_bus::writeHuC1(half address, byte value) {
         return;
     }
 
-    if (address >= 0x6000 && address <= 0x7FFF) {
-        bank_mode = (value & 0x01) ? BankMode::RAM : BankMode::ROM;
-        return;
-    }
+    // Note: HuC1 writes to 0x6000-0x7FFF have no effect (no bank mode register)
 }
 
 void address_bus::writeHuC3(half address, byte value) {
@@ -395,9 +412,8 @@ void address_bus::writeHuC3(half address, byte value) {
     }
 
     if (address >= 0x2000 && address <= 0x3FFF) {
-        byte bank = value & 0x7F;
-        if (bank == 0) bank = 1;
-        rom_bank = bank;
+        // HuC3 allows bank 0 to be selected (like MBC5)
+        rom_bank = value & 0x7F;
         return;
     }
 

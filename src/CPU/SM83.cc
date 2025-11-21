@@ -1349,61 +1349,76 @@ inline void SM83::call_interrupt(half handler) {
 }
 
 inline void SM83::increment_timer() {
+    // Increment DIV (updates every 256 cycles)
     divcounter++;
-    if (divcounter == 256) {
+    if (divcounter >= 256) {
         divcounter = 0;
         memory->IOrange[addr(IORegister::DIV) -
                         addr(MemoryRegion::IO_REGISTERS)]++;
     }
 
-    tacreg =
-        memory
-            ->IOrange[addr(IORegister::TAC) - addr(MemoryRegion::IO_REGISTERS)];
-    if (!isBitSet(tacreg, 2)) {
-        timacounter = 0;
-        tima_written_this_cycle = false;
-        return;
-    }
-
-    timacounter++;
-
-    if (tima_written_this_cycle) {
-        tima_written_this_cycle = false;
-        return;
-    }
-
-    timareg = memory->IOrange[addr(IORegister::TIMA) -
-                              addr(MemoryRegion::IO_REGISTERS)];
-    bool should_increment = false;
-    if ((timacounter == 256 * 4) && ((tacreg & 0x3) == 0)) {
-        should_increment = true;
-        timacounter = 0;
-    } else if ((timacounter == 4 * 4) && ((tacreg & 0x3) == 1)) {
-        should_increment = true;
-        timacounter = 0;
-    } else if ((timacounter == 16 * 4) && ((tacreg & 0x3) == 2)) {
-        should_increment = true;
-        timacounter = 0;
-    } else if ((timacounter == 64 * 4) && ((tacreg & 0x3) == 3)) {
-        should_increment = true;
-        timacounter = 0;
-    }
-
-    if (should_increment) {
-        byte new_tima = timareg + 1;
-        if (new_tima == 0) {
-            memory->IOrange[addr(IORegister::TIMA) -
-                            addr(MemoryRegion::IO_REGISTERS)] =
-                memory->IOrange[addr(IORegister::TMA) -
-                                addr(MemoryRegion::IO_REGISTERS)];
+    if (tima_overflow_cycles > 0) {
+        tima_overflow_cycles--;
+        if (tima_overflow_cycles == 0) {
+            byte& tima_reg = memory->IOrange[addr(IORegister::TIMA) -
+                                             addr(MemoryRegion::IO_REGISTERS)];
+            byte& tma_reg = memory->IOrange[addr(IORegister::TMA) -
+                                            addr(MemoryRegion::IO_REGISTERS)];
+            if (!tima_written_this_cycle) {
+                tima_reg = tma_reg;
+            }
             auto& if_reg = memory->IOrange[addr(IORegister::IF) -
                                            addr(MemoryRegion::IO_REGISTERS)];
             if_reg = setBit(if_reg, 2);
-        } else {
-            memory->IOrange[addr(IORegister::TIMA) -
-                            addr(MemoryRegion::IO_REGISTERS)] = new_tima;
         }
     }
+
+    tima_written_this_cycle = false;
+
+    tacreg =
+        memory
+            ->IOrange[addr(IORegister::TAC) - addr(MemoryRegion::IO_REGISTERS)];
+    bool timer_enabled = isBitSet(tacreg, 2);
+
+    // Get the appropriate bit from the divider based on TAC frequency select
+    // TAC & 3 == 0: bit 9 (divcounter bit 1, since divcounter counts to 256 =
+    // DIV) TAC & 3 == 1: bit 3 (divcounter bit -5, use divcounter directly) TAC
+    // & 3 == 2: bit 5 (divcounter bit -3, use divcounter directly) TAC & 3 ==
+    // 3: bit 7 (divcounter bit -1, use divcounter directly)
+
+    byte timer_bit = 0;
+    switch (tacreg & 0x3) {
+        case 0:  // 4096 Hz - use divcounter bit 1 (every 512 cycles, falling
+                 // edge = 1024)
+            timer_bit = (divcounter & (1u << 9)) ? 1 : 0;
+            break;
+        case 1:  // 262144 Hz - check every 16 cycles
+            timer_bit = (divcounter & (1u << 3)) ? 1 : 0;
+            break;
+        case 2:  // 65536 Hz - check every 64 cycles
+            timer_bit = (divcounter & (1u << 5)) ? 1 : 0;
+            break;
+        case 3:  // 16384 Hz - check every 256 cycles
+            timer_bit = (divcounter & (1u << 7)) ? 1 : 0;
+            break;
+    }
+
+    byte current_timer_bit = timer_enabled ? timer_bit : 0;
+
+    // Detect falling edge (1 -> 0 transition)
+    if (prev_timer_bit && !current_timer_bit) {
+        byte& tima_reg = memory->IOrange[addr(IORegister::TIMA) -
+                                         addr(MemoryRegion::IO_REGISTERS)];
+        byte new_tima = tima_reg + 1;
+
+        if (new_tima == 0) {
+            tima_overflow_cycles = 4;
+        }
+
+        tima_reg = new_tima;
+    }
+
+    prev_timer_bit = current_timer_bit;
 }
 
 #if GBC_CPU_DEBUG && !defined(__EMSCRIPTEN__)

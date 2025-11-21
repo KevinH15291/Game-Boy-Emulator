@@ -13,7 +13,7 @@
 #include "../CgbConfig.h"
 #include "../DebugMacros.h"
 #include "../bit_ops.h"
-
+#include "bus_internal.h"
 namespace GBC {
 
 class APU;
@@ -45,12 +45,6 @@ constexpr size_t HRAM_SIZE = 128;
 
 constexpr byte BYTE_MAX = 0xFF;
 
-constexpr half addr(MemoryRegion region) { return static_cast<half>(region); }
-constexpr half addr(IORegister reg) { return static_cast<half>(reg); }
-constexpr half addr(AudioRegister reg) { return static_cast<half>(reg); }
-constexpr half addr(VideoRegister reg) { return static_cast<half>(reg); }
-constexpr half addr(CGBRegister reg) { return static_cast<half>(reg); }
-
 template <typename Enum>
 constexpr auto to_underlying(Enum e) noexcept {
     return static_cast<std::underlying_type_t<Enum>>(e);
@@ -62,33 +56,6 @@ enum class RenderingState : uint8_t {
     OAMscan = 2,
     draw = 3
 };
-
-enum class MemoryBankController : uint8_t {
-    None = 0x00,
-    MBC1 = 0x01,
-    MBC1_RAM = 0x02,
-    MBC1_RAM_BATTERY = 0x03,
-    MBC2 = 0x05,
-    MBC2_BATTERY = 0x06,
-    MMM01 = 0x0B,
-    MMM01_RAM = 0x0C,
-    MMM01_RAM_BATTERY = 0x0D,
-    MBC3_RTC_BATTERY = 0x0F,
-    MBC3_RTC_RAM_BATTERY = 0x10,
-    MBC3 = 0x11,
-    MBC3_RAM = 0x12,
-    MBC3_RAM_BATTERY = 0x13,
-    MBC5 = 0x19,
-    MBC5_RAM = 0x1A,
-    MBC5_RAM_BATTERY = 0x1B,
-    MBC5_RUMBLE = 0x1C,
-    MBC6 = 0x20,
-    MBC7 = 0x22,
-    HuC1 = 0xFE,
-    HuC3 = 0xFF
-};
-
-#include "bus_internal.h"
 
 enum class BankMode : uint8_t { ROM = 0, RAM = 1 };
 
@@ -148,13 +115,11 @@ class address_bus {
     void load_ROM(const char *fname);
 #ifdef __EMSCRIPTEN__
     void load_ROM_buffer(const byte *data, size_t length);
-    void load_RAM_buffer(const byte *data, size_t length);
     void set_boot_complete(bool completed);
     void set_booting(bool value) { booting = value; }
 #endif
+    void load_RAM_buffer(const byte *data, size_t length);
     void reset_MBC_state();
-
-    void load_RAM(const char *fname, uint32_t size);
 
     void write(half address, byte value);
     void writeMBC1(half address, byte value);
@@ -214,6 +179,7 @@ class address_bus {
     byte input_s = 0x0F;
     byte IEnable = 0;
     byte RAMenable = 0;
+    byte mbc7_ram_enable_secondary = 0;  // MBC7 requires dual RAM enable
     byte latch_write = 0;
     byte debug_value = 0;
     byte bgpi = 0;
@@ -229,6 +195,7 @@ class address_bus {
     byte hdma_blocks_remaining = 0;
     bool hdma_active = false;
     bool hdma_mode_hblank = false;
+    byte hdma_vram_bank = 0;
     byte rp_state = 0;
     std::array<byte, 4> cgb_internal_regs{};
     byte opri = 0;
@@ -364,6 +331,7 @@ inline void address_bus::start_general_hdma(byte block_count) {
     if (!config.cgb_mode) {
         return;
     }
+    hdma_vram_bank = static_cast<byte>(vram_bank);
     hdma_active = false;
     hdma_mode_hblank = false;
     hdma_blocks_remaining = static_cast<byte>(block_count + 1);
@@ -379,6 +347,7 @@ inline void address_bus::start_hblank_hdma(byte block_count) {
         update_hdma_status_register();
         return;
     }
+    hdma_vram_bank = static_cast<byte>(vram_bank);
     hdma_active = true;
     hdma_mode_hblank = true;
     hdma_blocks_remaining = static_cast<byte>(block_count + 1);
@@ -392,7 +361,7 @@ inline void address_bus::complete_hdma_block() {
         const byte value = read_privileged(current_src + i);
         const half vram_offset = static_cast<half>(
             (current_dst + i) - addr(MemoryRegion::VIDEO_RAM));
-        write_vram(static_cast<byte>(vram_bank), vram_offset, value, true);
+        write_vram(hdma_vram_bank, vram_offset, value, true);
     }
     hdma_src = static_cast<half>((hdma_src & 0xFFF0) + 0x10);
     hdma_dst = static_cast<half>((hdma_dst + 0x10) & 0x1FF0);
@@ -559,11 +528,9 @@ inline byte address_bus::read_internal(half address, bool privileged) {
         } else if (mbc == MemoryBankController::MBC1 ||
                    mbc == MemoryBankController::MBC1_RAM ||
                    mbc == MemoryBankController::MBC1_RAM_BATTERY) {
-            if (rom_size <= 0x04) {
-                bank &= 0x1F;
-            } else {
-                bank &= 0x7F;
-            }
+            // MBC1 supports maximum 64 banks (6 bits: 5-bit main + 2-bit
+            // secondary)
+            bank &= 0x3F;
         } else {
             bank &= 0x7F;
         }
@@ -614,6 +581,10 @@ inline byte address_bus::read_internal(half address, bool privileged) {
 
     if (bus_internal::in_region(address, bus_internal::kExternalRam)) {
         if (!RAMenable) {
+            return 0xFF;
+        }
+        // MBC7 requires both RAM enable flags to be set
+        if (mbc == MemoryBankController::MBC7 && !mbc7_ram_enable_secondary) {
             return 0xFF;
         }
         if (bus_internal::is_mbc3_controller(mbc) &&
@@ -835,6 +806,10 @@ inline void address_bus::write_internal(half address, byte value,
 
     if (bus_internal::in_region(address, bus_internal::kExternalRam)) {
         if (!RAMenable) {
+            return;
+        }
+        // MBC7 requires both RAM enable flags to be set
+        if (mbc == MemoryBankController::MBC7 && !mbc7_ram_enable_secondary) {
             return;
         }
         if (bus_internal::is_mbc3_controller(mbc) &&

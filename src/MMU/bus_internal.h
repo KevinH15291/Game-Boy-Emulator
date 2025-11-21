@@ -5,17 +5,45 @@
 
 #include "enums.h"
 using half = uint16_t;
-enum class MemoryBankController : uint8_t;
 
+enum class MemoryBankController : uint8_t {
+    None = 0x00,
+    MBC1 = 0x01,
+    MBC1_RAM = 0x02,
+    MBC1_RAM_BATTERY = 0x03,
+    MBC2 = 0x05,
+    MBC2_BATTERY = 0x06,
+    MMM01 = 0x0B,
+    MMM01_RAM = 0x0C,
+    MMM01_RAM_BATTERY = 0x0D,
+    MBC3_RTC_BATTERY = 0x0F,
+    MBC3_RTC_RAM_BATTERY = 0x10,
+    MBC3 = 0x11,
+    MBC3_RAM = 0x12,
+    MBC3_RAM_BATTERY = 0x13,
+    MBC5 = 0x19,
+    MBC5_RAM = 0x1A,
+    MBC5_RAM_BATTERY = 0x1B,
+    MBC5_RUMBLE = 0x1C,
+    MBC6 = 0x20,
+    MBC7 = 0x22,
+    HuC1 = 0xFE,
+    HuC3 = 0xFF
+};
+
+constexpr half addr(MemoryRegion region) { return static_cast<half>(region); }
+constexpr half addr(IORegister reg) { return static_cast<half>(reg); }
+constexpr half addr(AudioRegister reg) { return static_cast<half>(reg); }
+constexpr half addr(VideoRegister reg) { return static_cast<half>(reg); }
+constexpr half addr(CGBRegister reg) { return static_cast<half>(reg); }
 namespace bus_internal {
-
 struct Region {
     half begin;
     half end;
 };
 
 constexpr Region make_region(MemoryRegion begin, MemoryRegion end) {
-    return Region{addr(begin), addr(end)};
+    return Region{.begin = addr(begin), .end = addr(end)};
 }
 
 constexpr Region kRomBank00 =

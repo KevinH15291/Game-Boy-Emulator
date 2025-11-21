@@ -27,8 +27,9 @@ class SM83 {
 
     std::array<byte, 8> r8;
 
-    uint32_t divcounter = 0, timacounter = 0, timareg,
-             tacreg;  // TODO probably should maybe make these have underscores
+    uint32_t divcounter = 0, timareg = 0, tacreg = 0;
+    byte prev_timer_bit = 0;
+    byte tima_overflow_cycles = 0;
     half pc = 0, sp = 0xFFFE;
     half opcode = 0;
     byte cycles = 0;
@@ -40,8 +41,8 @@ class SM83 {
     inline void executeCB();
     void reset_timer_counter() {
         divcounter = 0;
-        timacounter = 0;
         tima_written_this_cycle = false;
+        prev_timer_bit = 0;
     }
     void mark_tima_written() { tima_written_this_cycle = true; }
 

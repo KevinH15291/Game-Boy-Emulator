@@ -1,10 +1,6 @@
 #include "APU.h"
 
-#ifdef __EMSCRIPTEN__
-#include <SDL_audio.h>
-#else
 #include <SDL3/SDL_audio.h>
-#endif
 
 #include <algorithm>
 #include <array>
@@ -128,16 +124,6 @@ APU::APU(address_bus &memory, CgbConfig &config)
     : memory(memory), config(config) {
     SDL_InitSubSystem(SDL_INIT_AUDIO);
     std::memset(&audioSpec, 0, sizeof(audioSpec));
-#ifdef __EMSCRIPTEN__
-    audioSpec.format = AUDIO_F32SYS;
-    audioSpec.channels = 2;
-    audioSpec.freq = SAMPLE_RATE;
-    audioSpec.samples = AUDIO_BUFFER_SAMPLES;
-    audioDevice = SDL_OpenAudioDevice(nullptr, 0, &audioSpec, nullptr, 0);
-    if (audioDevice != 0) {
-        SDL_PauseAudioDevice(audioDevice, 0);
-    }
-#else
     audioSpec.format = SDL_AUDIO_F32;
     audioSpec.channels = 2;
     audioSpec.freq = SAMPLE_RATE;
@@ -146,7 +132,6 @@ APU::APU(address_bus &memory, CgbConfig &config)
     if (audioStream != nullptr) {
         SDL_ResumeAudioDevice(SDL_GetAudioStreamDevice(audioStream));
     }
-#endif
     channelMuted.fill(false);
     reset();
 }
@@ -156,15 +141,9 @@ APU::~APU() {
 #ifndef __EMSCRIPTEN__
     close_audio_export();
 #endif
-#ifdef __EMSCRIPTEN__
-    if (audioDevice != 0) {
-        SDL_CloseAudioDevice(audioDevice);
-    }
-#else
     if (audioStream != nullptr) {
         SDL_DestroyAudioStream(audioStream);
     }
-#endif
 }
 
 void APU::reset() {
@@ -794,29 +773,12 @@ void APU::set_master_volume(float volume) {
 float APU::get_master_volume() const { return masterVolume; }
 
 void APU::queue_audio(float left, float right) {
-#ifdef __EMSCRIPTEN__
-    if (audioDevice == 0) return;
-#else
     if (audioStream == nullptr) return;
-#endif
     sampleBuffer[bufferedSamples * 2] = left;
     sampleBuffer[bufferedSamples * 2 + 1] = right;
     ++bufferedSamples;
 
     if (bufferedSamples >= AUDIO_BUFFER_SAMPLES) {
-#ifdef __EMSCRIPTEN__
-        Uint32 queued = SDL_GetQueuedAudioSize(audioDevice);
-        constexpr Uint32 BYTES_PER_BUFFER =
-            AUDIO_BUFFER_SAMPLES * sizeof(float) * 2;
-        constexpr Uint32 MAX_QUEUED = BYTES_PER_BUFFER * 5;
-        if (queued > MAX_QUEUED) {
-            bufferedSamples = 0;
-            return;
-        }
-        SDL_QueueAudio(
-            audioDevice, sampleBuffer.data(),
-            static_cast<Uint32>(bufferedSamples * sizeof(float) * 2));
-#else
         int queued = SDL_GetAudioStreamQueued(audioStream);
         constexpr int MAX_QUEUED =
             AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 10;
@@ -835,22 +797,15 @@ void APU::queue_audio(float left, float right) {
         SDL_PutAudioStreamData(
             audioStream, sampleBuffer.data(),
             static_cast<int>(bufferedSamples * sizeof(float) * 2));
-#endif
         bufferedSamples = 0;
     }
 }
 
 void APU::flush_audio() {
-#ifdef __EMSCRIPTEN__
-    if (audioDevice == 0 || bufferedSamples == 0) return;
-    SDL_QueueAudio(audioDevice, sampleBuffer.data(),
-                   static_cast<Uint32>(bufferedSamples * sizeof(float) * 2));
-#else
     if (audioStream == nullptr || bufferedSamples == 0) return;
     SDL_PutAudioStreamData(
         audioStream, sampleBuffer.data(),
         static_cast<int>(bufferedSamples * sizeof(float) * 2));
-#endif
     bufferedSamples = 0;
 }
 

@@ -1,12 +1,7 @@
 #pragma once
 
-#ifdef __EMSCRIPTEN__
-#include <SDL.h>
-#include <SDL_audio.h>
-#else
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_audio.h>
-#endif
 
 #include <array>
 #include <cstdint>
@@ -172,11 +167,7 @@ class APU {
     void write_reg(AudioRegister reg, byte value);
     std::array<byte, 16> waveRAM{};
 
-#ifdef __EMSCRIPTEN__
-    SDL_AudioDeviceID audioDevice = 0;
-#else
     SDL_AudioStream *audioStream = nullptr;
-#endif
     SDL_AudioSpec audioSpec{};
 };
 

@@ -1,19 +1,14 @@
 #pragma once
 
-#ifdef __EMSCRIPTEN__
-#include <SDL.h>
-#include <SDL_render.h>
-#include <SDL_video.h>
-#else
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_render.h>
 #include <SDL3/SDL_video.h>
-#endif
 
 #include <array>
 #include <bitset>
 #include <cstdint>
 #include <utility>
+#include <vector>
 
 #include "../DebugMacros.h"
 #include "bus.h"
@@ -30,23 +25,19 @@ struct obj {
 
 class PPU {
    public:
+    PPU(const PPU &) = delete;
+    PPU(PPU &&) = delete;
+    PPU &operator=(const PPU &) = delete;
+    PPU &operator=(PPU &&) = delete;
     PPU(address_bus *bus, CgbConfig &config) : bus(bus), config(config) {}
     ~PPU();
 
     void execute_cycle();
     void draw_pixel();
-#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
-    void dump_info();
-    void dump_vram();
-#endif
+    void present();
 
     void init_window();
     inline void io_write(half address, byte value);
-
-#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
-    void init_debug_window();
-    void render_debug();
-#endif
     void mark_cache_dirty() { cache_dirty = true; }
 
    private:
@@ -60,20 +51,11 @@ class PPU {
     bool wlyenabled = false;
     int oam_scan_dot = 0;
     size_t oam_scan_index = 0;
+    bool hdma_done_this_line = false;
 
     SDL_Event event{};
     SDL_Renderer *renderer = nullptr;
     SDL_Window *window = nullptr;
-#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
-    SDL_Renderer *debug_tile_renderer = nullptr;
-    SDL_Renderer *debug_window_renderer = nullptr;
-    SDL_Renderer *debug_object_renderer = nullptr;
-    SDL_Renderer *debug_bg_renderer = nullptr;
-    SDL_Window *debug_tile_window = nullptr;
-    SDL_Window *debug_window_window = nullptr;
-    SDL_Window *debug_object_window = nullptr;
-    SDL_Window *debug_bg_window = nullptr;
-#endif
     SDL_Texture *texture = nullptr;
 
     std::array<uint32_t, WINDOW_WIDTH * WINDOW_HEIGHT> frame_rgb{};
@@ -123,6 +105,9 @@ class PPU {
         bool has_pixel = false;
     };
 
+    bool stat_signal = false;
+    void update_stat_line();
+
     [[nodiscard]] std::pair<byte, byte> fetch_tile_row(
         byte tile_index, byte row, bool unsigned_index, byte bank) const;
     inline BgPixel sample_bg_pixel(half tilex, half tiley);
@@ -130,11 +115,43 @@ class PPU {
     inline BgPixel sample_tile_map_pixel(TileMapKind kind, half tilex,
                                          half tiley);
     inline ObjPixel sample_object_pixel(int screen_x);
-    void set_mode(RenderingState new_mode, bool allow_interrupt = true);
-    void request_stat_interrupt(byte stat_bit);
+    void set_mode(RenderingState new_mode);
     void upload_frame_to_texture();
 #if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
-    void render_debug_point(SDL_Renderer *target, uint32_t color, int x, int y);
+    void dump_info();
+    void dump_vram();
+    void init_debug_window();
+    void render_debug_layers();
+    void update_debug_layer(SDL_Renderer *target_renderer,
+                            SDL_Texture *target_texture,
+                            const uint32_t *frame_data, int width, int height);
+    void fill_debug_background_surface();
+    void fill_debug_window_surface();
+    void render_debug_tiles();
+
+    static constexpr int DEBUG_MAP_SIZE = 256;
+    std::array<uint32_t, WINDOW_WIDTH * WINDOW_HEIGHT> debug_obj_frame{};
+    std::vector<uint32_t> debug_bg_surface;
+    std::vector<uint32_t> debug_window_surface;
+    std::vector<uint32_t> debug_tile_surface;
+    int debug_bg_surface_width = 0;
+    int debug_bg_surface_height = 0;
+    int debug_window_surface_width = 0;
+    int debug_window_surface_height = 0;
+    int debug_tile_surface_width = 0;
+    int debug_tile_surface_height = 0;
+    SDL_Renderer *debug_tile_renderer = nullptr;
+    SDL_Renderer *debug_window_renderer = nullptr;
+    SDL_Renderer *debug_object_renderer = nullptr;
+    SDL_Renderer *debug_bg_renderer = nullptr;
+    SDL_Window *debug_tile_window = nullptr;
+    SDL_Window *debug_window_window = nullptr;
+    SDL_Window *debug_object_window = nullptr;
+    SDL_Window *debug_bg_window = nullptr;
+    SDL_Texture *debug_bg_texture = nullptr;
+    SDL_Texture *debug_window_texture = nullptr;
+    SDL_Texture *debug_object_texture = nullptr;
+    SDL_Texture *debug_tile_texture = nullptr;
 #endif
 };
 
@@ -149,7 +166,7 @@ inline void PPU::io_write(half address, byte value) {
             const byte old = reg_LCDC;
             reg_LCDC = value;
             cell = value;
-            if (!isBitSet(reg_LCDC, 5) && isBitSet(old, 5)) {
+            if (isBitSet(old, 5) != isBitSet(reg_LCDC, 5)) {
                 wly = 0;
                 wlyenabled = false;
             }
@@ -196,13 +213,12 @@ inline void PPU::io_write(half address, byte value) {
             cache_dirty = true;
             break;
         case addr(VideoRegister::WY): {
-            const byte old = reg_WY;
-            reg_WY = value;
-            cell = value;
-            if (reg_WY != old) {
+            if (reg_WY != value) {
                 wly = 0;
                 wlyenabled = false;
             }
+            reg_WY = value;
+            cell = value;
             cache_dirty = true;
             break;
         }

@@ -163,7 +163,7 @@
   <body>
     <div id="controls">
       <div id="romInputLabel">
-      <input type="file" id="romInput" accept=".gb,.gbc" />
+        <input type="file" id="romInput" accept=".gb,.gbc" />
         <span class="keybinding">Ctrl+O</span>
       </div>
       <input
@@ -215,10 +215,10 @@
     <div id="fpsCounter">FPS: --</div>
     <div id="keybindings">
       <h3>Controls</h3>
-      <div><span class="action">A</span><span class="key">X</span></div>
-      <div><span class="action">B</span><span class="key">Z</span></div>
-      <div><span class="action">Select</span><span class="key">/</span></div>
-      <div><span class="action">Start</span><span class="key">Enter</span></div>
+      <div><span class="action">A</span><span class="key">A</span></div>
+      <div><span class="action">B</span><span class="key">S</span></div>
+      <div><span class="action">Select</span><span class="key">X</span></div>
+      <div><span class="action">Start</span><span class="key">Z</span></div>
       <div><span class="action">Right</span><span class="key">→</span></div>
       <div><span class="action">Left</span><span class="key">←</span></div>
       <div><span class="action">Up</span><span class="key">↑</span></div>
@@ -247,10 +247,10 @@
       let lastFpsUpdate = performance.now();
 
       const KEY_MAP = {
-        KeyX: { button: 0, pressed: false },
-        KeyZ: { button: 1, pressed: false },
-        Slash: { button: 2, pressed: false },
-        Enter: { button: 3, pressed: false },
+        KeyA: { button: 0, pressed: false },
+        KeyS: { button: 1, pressed: false },
+        KeyX: { button: 2, pressed: false },
+        KeyZ: { button: 3, pressed: false },
         ArrowRight: { button: 4, pressed: false },
         ArrowLeft: { button: 5, pressed: false },
         ArrowUp: { button: 6, pressed: false },
@@ -259,8 +259,10 @@
 
       const initModule = async () => {
         try {
+          canvas.width = 640;
+          canvas.height = 576;
           gbcModule = await createGBCModule({ canvas });
-        runtimeReady = true;
+          runtimeReady = true;
           handleRuntimeReady();
         } catch (error) {
           console.error("Failed to initialize GBC module", error);
@@ -339,15 +341,15 @@
 
       const updateFPS = () => {
         if (runtimeReady && gbcModule?._get_frame_count) {
-        const now = performance.now();
+          const now = performance.now();
           const currentFrameCount = gbcModule._get_frame_count();
-        const elapsed = now - lastFpsUpdate;
-        if (elapsed >= 1000) {
-          const fps = ((currentFrameCount - lastFrameCount) * 1000) / elapsed;
-          fpsEl.textContent = `FPS: ${fps.toFixed(1)}`;
-          lastFrameCount = currentFrameCount;
-          lastFpsUpdate = now;
-        }
+          const elapsed = now - lastFpsUpdate;
+          if (elapsed >= 1000) {
+            const fps = ((currentFrameCount - lastFrameCount) * 1000) / elapsed;
+            fpsEl.textContent = `FPS: ${fps.toFixed(1)}`;
+            lastFrameCount = currentFrameCount;
+            lastFpsUpdate = now;
+          }
         }
         requestAnimationFrame(updateFPS);
       };
@@ -383,16 +385,16 @@
           Math.min(100, parseInt(volumeSlider.value, 10) + delta)
         );
         volumeSlider.value = String(next);
-            volumeSlider.dispatchEvent(new Event("input"));
+        volumeSlider.dispatchEvent(new Event("input"));
       };
 
       const toggleChannelByIndex = (channelIndex) => {
-          const checkbox = document.querySelector(
+        const checkbox = document.querySelector(
           `#channelToggles input[data-channel="${channelIndex}"]`
-          );
+        );
         if (!checkbox) return;
-            checkbox.checked = !checkbox.checked;
-            checkbox.dispatchEvent(new Event("change"));
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event("change"));
       };
 
       window.addEventListener("keydown", (event) => {
@@ -532,8 +534,8 @@
         }
         if (runtimeReady && gbcModule?._set_master_volume) {
           gbcModule._set_master_volume(value / 100);
-          }
-        });
+        }
+      });
 
       initModule();
     </script>

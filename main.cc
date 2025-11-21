@@ -1,6 +1,9 @@
 #include <cstddef>
-#include <cstdio>
+#include <cstdint>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <vector>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -88,10 +91,15 @@ void emscripten_frame_loop(void* arg) {
 
     accumulator += dt;
 
+    if (accumulator > stepMs * 3) {
+        accumulator = stepMs * 3;
+    }
+
     while (accumulator >= stepMs) {
         gbc->execute_frame();
         accumulator -= stepMs;
     }
+    gbc->ppu.present();
 }
 
 void shutdown_emulator() {
@@ -103,10 +111,8 @@ void shutdown_emulator() {
 
 #ifdef __EMSCRIPTEN__
 int main(int /*argc*/, char*[] /*argv*/) {
-    GBC::GBC gbc(true);
-    g_gbc = &gbc;
-    emscripten_set_main_loop_timing(EM_TIMING_RAF, 1);
-    emscripten_set_main_loop_arg(emscripten_frame_loop, &gbc, 0, 1);
+    g_gbc = new GBC::GBC(true);
+    emscripten_set_main_loop_arg(emscripten_frame_loop, g_gbc, 0, 1);
     return 0;
 }
 #else
@@ -115,6 +121,7 @@ int main(int argc, char* argv[]) {
     bool headless = false;
     int maxFrames = 0;
     std::string rom_path;
+    std::string import_save_path;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -124,6 +131,8 @@ int main(int argc, char* argv[]) {
             headless = true;
         } else if (arg == "--frames" && i + 1 < argc) {
             maxFrames = std::stoi(argv[++i]);
+        } else if ((arg == "--import-save" || arg == "-s") && i + 1 < argc) {
+            import_save_path = argv[++i];
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Usage: " << argv[0] << " [options] [rom_path]\n"
                       << "Options:\n"
@@ -132,6 +141,8 @@ int main(int argc, char* argv[]) {
                       << "  --headless            Skip SDL window creation\n"
                       << "  --frames <n>          Frames to run in headless "
                          "mode (default 60)\n"
+                      << "  --import-save <path>  Load external battery save "
+                         "before running\n"
                       << "  --help, -h            Show this help message\n";
             return 0;
         } else if (!arg.empty() && arg[0] != '-') {
@@ -156,6 +167,22 @@ int main(int argc, char* argv[]) {
         std::cin >> path;
     }
     gbc.addresses.load_ROM(path.c_str());
+    if (!import_save_path.empty()) {
+        std::ifstream save_file(import_save_path, std::ios::binary);
+        if (!save_file.is_open()) {
+            std::cerr << "Failed to open save file: " << import_save_path
+                      << '\n';
+        } else {
+            std::vector<uint8_t> buffer(
+                (std::istreambuf_iterator<char>(save_file)),
+                std::istreambuf_iterator<char>());
+            if (!buffer.empty()) {
+                gbc.addresses.load_RAM_buffer(buffer.data(), buffer.size());
+            } else {
+                std::cerr << "Save file empty: " << import_save_path << '\n';
+            }
+        }
+    }
     gbc.reset_after_rom_load();
     if (headless) {
         const int frames_to_run = maxFrames > 0 ? maxFrames : 60;

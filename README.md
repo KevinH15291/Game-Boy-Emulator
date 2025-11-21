@@ -1,49 +1,62 @@
-Installation Guide
-==============
+# Game Boy Color Emulator
 
-The only requirements to build this are:
-A working C++ compiler, capable of compiling C++17
-CMake
-SDL3 (this is probably the hardest to install)
+> Prebuilt native and web artifacts are already packaged, so you can jump straight to `prebuilt-web/`, `build/GBC`, or visit the hosted emulator at https://kevinhuai.com/gameboy-emulator with some very legal ROMS (don't tell Nintendo).
 
-To install sdl3 
-on mac: `brew install sdl3`
-on linux: in some package managers
-on windows: also idk, probably install it here? https://github.com/libsdl-org/SDL/releases/tag/release-3.2.8
+A Game Boy Color emulator written in C++ with SDL3 support for both native and web (Emscripten) builds.
 
-Then, just run 
+## Requirements
+- C++ compiler with C++23 support
+- CMake
+- SDL3
 
-```
+## Native Build
+
+### Dependencies
+- C++ compiler with C++23 support
+- CMake
+- SDL3
+
+On macOS install SDL3 with `brew install sdl3`; on Linux install `libsdl3-dev` (or similar), and on Windows download the latest release from https://github.com/libsdl-org/SDL/releases.
+
+### Building
+```bash
 git clone https://github.com/KevinH15291/Game-Boy-Emulator
 cd Game-Boy-Emulator
-cmake .
-make
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
 ```
 
+### Running
+```bash
+./build/GBC path/to/rom.gb
+```
+`GBC` will prompt for the ROM path if none is provided.
 
-Despite the cmake project's name, it does not support color features yet.
+## Web Build
 
-You can then run a rom by doing `./GBC` and then entering the path to your rom. Please make sure it uses the MB1, MB3, or no memory bank controller, as those are the only ones supported so far.
+### Prerequisites
+- Emscripten (see https://emscripten.org/docs/getting_started/downloads.html)
 
-Mapping
-A: A
-B: S
-Start: Z
+### Building
+```bash
+emcmake cmake -S . -B build_wasm -DCMAKE_BUILD_TYPE=Release
+cmake --build build_wasm --config Release
+```
+
+The resulting `GBC.js`/`GBC.wasm` pair will appear under `build_wasm/` and can be mirrored into `prebuilt-web/` for hosting. Open `prebuilt-web/index.html` in a modern browser or serve the directory with `python3 -m http.server`.
+
+> **Note:** Prebuilt web assets (`prebuilt-web/`) are already included so you can skip the build step if you just want the js/wasm. The emulator is currently hosted at https://kevinhuai.com/gameboy-emulator if you would like to use it for playing games.
+
+## Controls
+A: A  
+B: S  
+Start: Z  
 Select: X
 
-Some images:
+## Screenshots
+
 ![image](https://github.com/user-attachments/assets/7fe80fb9-3d9b-4772-95e2-ff6a724c9a89)
 
 ![image](https://github.com/user-attachments/assets/df287824-9dcd-4e75-878e-453c6f37ebd3)
 
-
 ![image](https://github.com/user-attachments/assets/06c53c0a-8065-4ae2-84d5-715ba7d5ead6)
-
-older:
-https://github.com/user-attachments/assets/c27fa8ee-212c-405e-b31f-c1452a69a391
-
-growing pains :|
-<img width="752" alt="image" src="https://github.com/user-attachments/assets/d98fe28b-0d0e-414b-a6a9-6d18887bf367" />
-
-
-

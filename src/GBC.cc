@@ -159,6 +159,7 @@ void GBC::run() {
         if (elapsed < FRAME_TIME_NS) {
             std::this_thread::sleep_for(FRAME_TIME_NS - elapsed);
         }
+        ppu.present();
     }
 }
 #endif
@@ -210,8 +211,8 @@ inline void GBC::handle_input() {
 
     set_if_key_down(SDL_SCANCODE_A, 0, input_s);
     set_if_key_down(SDL_SCANCODE_S, 1, input_s);
-    set_if_key_down(SDL_SCANCODE_Z, 2, input_s);
-    set_if_key_down(SDL_SCANCODE_X, 3, input_s);
+    set_if_key_down(SDL_SCANCODE_X, 2, input_s);
+    set_if_key_down(SDL_SCANCODE_Z, 3, input_s);
 
     set_if_key_down(SDL_SCANCODE_RIGHT, 0, input_d);
     set_if_key_down(SDL_SCANCODE_LEFT, 1, input_d);
