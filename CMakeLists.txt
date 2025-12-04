@@ -16,10 +16,18 @@ endif()
 # Profiling options
 option(ENABLE_PROFILING "Enable profiling instrumentation" OFF)
 if(ENABLE_PROFILING)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg -O2")
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pg -O2")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pg")
-    message(STATUS "Profiling enabled with gprof")
+    if(EMSCRIPTEN)
+        # Emscripten profiling flags
+        add_compile_options(-g)  
+        add_link_options(-sPROFILING_FUNCS=1 -sDEMANGLE_SUPPORT=1)
+        message(STATUS "Emscripten profiling enabled")
+    else()
+        # Native gprof profiling
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg -g -O3")
+        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pg -g -O3")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pg")
+        message(STATUS "Native profiling enabled with gprof")
+    endif()
 endif()
 
 
@@ -39,8 +47,23 @@ endif()
 include(FetchContent)
 
 if(EMSCRIPTEN)
+    add_compile_options(
+        -O3
+        -flto 
+        -fno-rtti 
+        -fno-exceptions
+        -ffast-math
+        -fno-math-errno
+        -fno-trapping-math
+        -fno-unwind-tables
+        -fno-asynchronous-unwind-tables
+        -fomit-frame-pointer
+        -fvisibility=hidden
+    )
+    
     set(SDL_SHARED OFF CACHE BOOL "Disable shared SDL builds" FORCE)
     set(SDL_STATIC ON CACHE BOOL "Force static SDL" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "Disable SDL test library" FORCE)
     set(SDL_TESTS OFF CACHE BOOL "Skip SDL tests" FORCE)
     set(SDL_EXAMPLES OFF CACHE BOOL "Skip SDL examples" FORCE)
     set(SDL_NET OFF CACHE BOOL "Disable SDL networking" FORCE)
@@ -63,6 +86,7 @@ else()
     if(NOT SDL3_FOUND)
         set(SDL_SHARED OFF CACHE BOOL "Disable shared SDL builds" FORCE)
         set(SDL_STATIC ON CACHE BOOL "Force static SDL" FORCE)
+        set(SDL_TEST_LIBRARY OFF CACHE BOOL "Disable SDL test library" FORCE)
         set(SDL_TESTS OFF CACHE BOOL "Skip SDL tests" FORCE)
         set(SDL_EXAMPLES OFF CACHE BOOL "Skip SDL examples" FORCE)
         set(SDL_NET OFF CACHE BOOL "Disable SDL networking" FORCE)
@@ -100,7 +124,7 @@ add_executable(GBC ${SOURCES})
 
 if(EMSCRIPTEN)
     target_compile_options(GBC PUBLIC 
-        -O3 
+        -O3
         -flto 
         -fno-rtti 
         -fno-exceptions
@@ -108,9 +132,20 @@ if(EMSCRIPTEN)
         -fno-math-errno
         -fno-trapping-math
         -fno-unwind-tables
-        -fno-asynchronous-unwind-tables)
+        -fno-asynchronous-unwind-tables
+        -fomit-frame-pointer
+        -fvisibility=hidden)
     target_include_directories(GBC PRIVATE ${SDL3_SOURCE_DIR}/include)
     target_link_options(GBC PUBLIC 
+        --closed-world
+        --ignore-implicit-traps
+        --traps-never-happen
+        --enable-bulk-memory-opt
+        --enable-nontrapping-float-to-int
+        --remove-unused-module-elements
+        --remove-unused-nonfunction-module-elements
+        --strip-debug
+        --strip-producers
         -O3
         -flto
         -sSTACK_SIZE=2097152
@@ -127,10 +162,11 @@ if(EMSCRIPTEN)
         -sEXPORTED_FUNCTIONS=_main,_upload_rom,_set_button_state,_set_channel_muted,_is_channel_muted,_set_master_volume,_get_master_volume,_get_frame_count,_get_cart_ram_ptr,_get_cart_ram_size,_import_save,_shutdown_emulator,_malloc,_free
         -sEXPORTED_RUNTIME_METHODS=ccall,cwrap,writeArrayToMemory,HEAPU8,HEAP8
         -sERROR_ON_UNDEFINED_SYMBOLS=1
-        -sWARN_UNALIGNED=1)
+        -sWARN_UNALIGNED=1
+        -sEXPORT_ALL=0
+        -sBINARYEN_EXTRA_PASSES="-O3,--gufa,-O4,--converge")
     target_link_libraries(GBC PRIVATE SDL3::SDL3-static)
 
-    # Post-build: Copy outputs to prebuilt-web (mirroring build_and_serve.sh)
     add_custom_command(TARGET GBC POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_SOURCE_DIR}/prebuilt-web
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

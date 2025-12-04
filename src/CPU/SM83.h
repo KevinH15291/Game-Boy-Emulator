@@ -108,14 +108,16 @@ class SM83 {
         return low | (static_cast<half>(high) << 8);
     }
 
-    inline bool halfCarryAdd(byte a, byte b) {
+    [[gnu::always_inline]] inline bool halfCarryAdd(byte a, byte b) {
         return ((a & 0xF) + (b & 0xF)) > 0xF;
     }
-    inline bool halfCarryAdd_WithCarry(byte a, byte b) {
+    [[gnu::always_inline]] inline bool halfCarryAdd_WithCarry(byte a, byte b) {
         return ((a & 0xF) + (b & 0xF) + getCarryFlag()) > 0xF;
     }
-    inline bool halfCarrySub(byte a, byte b) { return (a & 0xF) < (b & 0xF); }
-    inline bool halfCarrySub_WithCarry(byte a, byte b) {
+    [[gnu::always_inline]] inline bool halfCarrySub(byte a, byte b) {
+        return (a & 0xF) < (b & 0xF);
+    }
+    [[gnu::always_inline]] inline bool halfCarrySub_WithCarry(byte a, byte b) {
         return (a & 0xF) < ((b & 0xF) + getCarryFlag());
     }
 

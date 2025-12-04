@@ -26,131 +26,6 @@ void PPU::init_window() {
     SDL_RenderClear(renderer);
 }
 
-#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
-void PPU::dump_info() {
-    std::cerr << std::hex << "dots: " << dots << '\n';
-    std::cerr << "lines: " << lines << '\n';
-    std::cerr << "renderX: " << renderX << '\n';
-    switch (mode) {
-        case RenderingState::hblank:
-            std::cerr << "state: hblank\n";
-            break;
-        case RenderingState::vblank:
-            std::cerr << "state: vblank\n";
-            break;
-        case RenderingState::OAMscan:
-            std::cerr << "state: OAMscan\n";
-            break;
-        case RenderingState::draw:
-            std::cerr << "state: draw\n";
-            break;
-    }
-    std::cerr << std::endl;
-}
-
-void PPU::dump_vram() {
-    for (int i = 0; i < 0x3FF; ++i) {
-        if (i % 16 == 0) std::cout << std::endl;
-        std::cout << std::hex << (i + 0x9900) << ": "
-                  << std::bitset<8>(bus->read(i + 0x9900) & 0xFF) << " ";
-    }
-}
-
-void PPU::init_debug_window() {
-    if (debug_tile_window != nullptr) {
-        return;
-    }
-    SDL_Init(SDL_INIT_VIDEO);
-    constexpr int tiles_per_row = 16;
-    constexpr int tile_size = 8;
-    const int tile_map_width = tiles_per_row * tile_size;  // 128 pixels
-    const int tile_map_height =
-        (384 / tiles_per_row) * tile_size;  // 192 pixels
-    const int tile_window_width = (config.cgb_mode ? 2 : 1) * tile_map_width;
-    const int tile_window_height = tile_map_height;
-    debug_tile_window =
-        SDL_CreateWindow("(GBC) VRAM tiles", tile_window_width * 4,
-                         tile_window_height * 4, SDL_WINDOW_RESIZABLE);
-    debug_tile_renderer = SDL_CreateRenderer(debug_tile_window, nullptr);
-    SDL_SetRenderLogicalPresentation(debug_tile_renderer, tile_window_width,
-                                     tile_window_height,
-                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
-    SDL_SetRenderDrawColor(debug_tile_renderer, 255, 255, 255, 255);
-    SDL_RenderClear(debug_tile_renderer);
-
-    debug_bg_window = SDL_CreateWindow("(GBC) background layer", 256 * 2,
-                                       256 * 2, SDL_WINDOW_RESIZABLE);
-    debug_bg_renderer = SDL_CreateRenderer(debug_bg_window, nullptr);
-    SDL_SetRenderLogicalPresentation(debug_bg_renderer, 256, 256,
-                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
-    SDL_SetRenderDrawColor(debug_bg_renderer, 255, 255, 255, 255);
-    SDL_RenderClear(debug_bg_renderer);
-
-    debug_window_window =
-        SDL_CreateWindow("(GBC) window layer", WINDOW_WIDTH * 4,
-                         WINDOW_HEIGHT * 4, SDL_WINDOW_RESIZABLE);
-    debug_window_renderer = SDL_CreateRenderer(debug_window_window, nullptr);
-    SDL_SetRenderLogicalPresentation(debug_window_renderer, WINDOW_WIDTH,
-                                     WINDOW_HEIGHT,
-                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
-    SDL_SetRenderDrawColor(debug_window_renderer, 255, 255, 255, 255);
-    SDL_RenderClear(debug_window_renderer);
-
-    debug_object_window =
-        SDL_CreateWindow("(GBC) object layer", WINDOW_WIDTH * 4,
-                         WINDOW_HEIGHT * 4, SDL_WINDOW_RESIZABLE);
-    debug_object_renderer = SDL_CreateRenderer(debug_object_window, nullptr);
-    SDL_SetRenderLogicalPresentation(debug_object_renderer, WINDOW_WIDTH,
-                                     WINDOW_HEIGHT,
-                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
-    SDL_SetRenderDrawColor(debug_object_renderer, 255, 255, 255, 255);
-    SDL_RenderClear(debug_object_renderer);
-
-    const auto create_layer_texture = [&](SDL_Renderer* target, int width,
-                                          int height) {
-        if (target == nullptr) return static_cast<SDL_Texture*>(nullptr);
-        SDL_Texture* tex =
-            SDL_CreateTexture(target, SDL_PIXELFORMAT_ARGB8888,
-                              SDL_TEXTUREACCESS_STREAMING, width, height);
-        if (tex != nullptr) {
-            SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_NEAREST);
-        }
-        return tex;
-    };
-    debug_bg_surface_width = DEBUG_MAP_SIZE;
-    debug_bg_surface_height = DEBUG_MAP_SIZE;
-    debug_bg_surface.resize(static_cast<size_t>(DEBUG_MAP_SIZE) *
-                            static_cast<size_t>(DEBUG_MAP_SIZE));
-    debug_bg_texture =
-        create_layer_texture(debug_bg_renderer, DEBUG_MAP_SIZE, DEBUG_MAP_SIZE);
-
-    debug_window_surface_width = DEBUG_MAP_SIZE;
-    debug_window_surface_height = DEBUG_MAP_SIZE;
-    debug_window_surface.resize(static_cast<size_t>(DEBUG_MAP_SIZE) *
-                                static_cast<size_t>(DEBUG_MAP_SIZE));
-    debug_window_texture = create_layer_texture(debug_window_renderer,
-                                                DEBUG_MAP_SIZE, DEBUG_MAP_SIZE);
-
-    debug_object_texture = create_layer_texture(debug_object_renderer,
-                                                WINDOW_WIDTH, WINDOW_HEIGHT);
-
-    debug_tile_surface_width = tile_window_width;
-    debug_tile_surface_height = tile_window_height;
-    debug_tile_surface.resize(static_cast<size_t>(debug_tile_surface_width) *
-                              static_cast<size_t>(debug_tile_surface_height));
-    if (debug_tile_renderer != nullptr) {
-        debug_tile_texture =
-            SDL_CreateTexture(debug_tile_renderer, SDL_PIXELFORMAT_ARGB8888,
-                              SDL_TEXTUREACCESS_STREAMING,
-                              debug_tile_surface_width,
-                              debug_tile_surface_height);
-        if (debug_tile_texture != nullptr) {
-            SDL_SetTextureScaleMode(debug_tile_texture, SDL_SCALEMODE_NEAREST);
-        }
-    }
-}
-#endif
-
 PPU::~PPU() {
 #if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
     if (debug_tile_texture) SDL_DestroyTexture(debug_tile_texture);
@@ -811,9 +686,129 @@ void PPU::render_debug_tiles() {
                       nullptr);
     SDL_RenderPresent(debug_tile_renderer);
 }
-#endif
 
-#if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
+void PPU::dump_info() {
+    std::cerr << std::hex << "dots: " << dots << '\n';
+    std::cerr << "lines: " << lines << '\n';
+    std::cerr << "renderX: " << renderX << '\n';
+    switch (mode) {
+        case RenderingState::hblank:
+            std::cerr << "state: hblank\n";
+            break;
+        case RenderingState::vblank:
+            std::cerr << "state: vblank\n";
+            break;
+        case RenderingState::OAMscan:
+            std::cerr << "state: OAMscan\n";
+            break;
+        case RenderingState::draw:
+            std::cerr << "state: draw\n";
+            break;
+    }
+    std::cerr << std::endl;
+}
+
+void PPU::dump_vram() {
+    for (int i = 0; i < 0x3FF; ++i) {
+        if (i % 16 == 0) std::cout << std::endl;
+        std::cout << std::hex << (i + 0x9900) << ": "
+                  << std::bitset<8>(bus->read(i + 0x9900) & 0xFF) << " ";
+    }
+}
+
+void PPU::init_debug_window() {
+    if (debug_tile_window != nullptr) {
+        return;
+    }
+    SDL_Init(SDL_INIT_VIDEO);
+    constexpr int tiles_per_row = 16;
+    constexpr int tile_size = 8;
+    const int tile_map_width = tiles_per_row * tile_size;  // 128 pixels
+    const int tile_map_height =
+        (384 / tiles_per_row) * tile_size;  // 192 pixels
+    const int tile_window_width = (config.cgb_mode ? 2 : 1) * tile_map_width;
+    const int tile_window_height = tile_map_height;
+    debug_tile_window =
+        SDL_CreateWindow("(GBC) VRAM tiles", tile_window_width * 4,
+                         tile_window_height * 4, SDL_WINDOW_RESIZABLE);
+    debug_tile_renderer = SDL_CreateRenderer(debug_tile_window, nullptr);
+    SDL_SetRenderLogicalPresentation(debug_tile_renderer, tile_window_width,
+                                     tile_window_height,
+                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+    SDL_SetRenderDrawColor(debug_tile_renderer, 255, 255, 255, 255);
+    SDL_RenderClear(debug_tile_renderer);
+
+    debug_bg_window = SDL_CreateWindow("(GBC) background layer", 256 * 2,
+                                       256 * 2, SDL_WINDOW_RESIZABLE);
+    debug_bg_renderer = SDL_CreateRenderer(debug_bg_window, nullptr);
+    SDL_SetRenderLogicalPresentation(debug_bg_renderer, 256, 256,
+                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+    SDL_SetRenderDrawColor(debug_bg_renderer, 255, 255, 255, 255);
+    SDL_RenderClear(debug_bg_renderer);
+
+    debug_window_window =
+        SDL_CreateWindow("(GBC) window layer", WINDOW_WIDTH * 4,
+                         WINDOW_HEIGHT * 4, SDL_WINDOW_RESIZABLE);
+    debug_window_renderer = SDL_CreateRenderer(debug_window_window, nullptr);
+    SDL_SetRenderLogicalPresentation(debug_window_renderer, WINDOW_WIDTH,
+                                     WINDOW_HEIGHT,
+                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+    SDL_SetRenderDrawColor(debug_window_renderer, 255, 255, 255, 255);
+    SDL_RenderClear(debug_window_renderer);
+
+    debug_object_window =
+        SDL_CreateWindow("(GBC) object layer", WINDOW_WIDTH * 4,
+                         WINDOW_HEIGHT * 4, SDL_WINDOW_RESIZABLE);
+    debug_object_renderer = SDL_CreateRenderer(debug_object_window, nullptr);
+    SDL_SetRenderLogicalPresentation(debug_object_renderer, WINDOW_WIDTH,
+                                     WINDOW_HEIGHT,
+                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+    SDL_SetRenderDrawColor(debug_object_renderer, 255, 255, 255, 255);
+    SDL_RenderClear(debug_object_renderer);
+
+    const auto create_layer_texture = [&](SDL_Renderer* target, int width,
+                                          int height) {
+        if (target == nullptr) return static_cast<SDL_Texture*>(nullptr);
+        SDL_Texture* tex =
+            SDL_CreateTexture(target, SDL_PIXELFORMAT_ARGB8888,
+                              SDL_TEXTUREACCESS_STREAMING, width, height);
+        if (tex != nullptr) {
+            SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_NEAREST);
+        }
+        return tex;
+    };
+    debug_bg_surface_width = DEBUG_MAP_SIZE;
+    debug_bg_surface_height = DEBUG_MAP_SIZE;
+    debug_bg_surface.resize(static_cast<size_t>(DEBUG_MAP_SIZE) *
+                            static_cast<size_t>(DEBUG_MAP_SIZE));
+    debug_bg_texture =
+        create_layer_texture(debug_bg_renderer, DEBUG_MAP_SIZE, DEBUG_MAP_SIZE);
+
+    debug_window_surface_width = DEBUG_MAP_SIZE;
+    debug_window_surface_height = DEBUG_MAP_SIZE;
+    debug_window_surface.resize(static_cast<size_t>(DEBUG_MAP_SIZE) *
+                                static_cast<size_t>(DEBUG_MAP_SIZE));
+    debug_window_texture = create_layer_texture(debug_window_renderer,
+                                                DEBUG_MAP_SIZE, DEBUG_MAP_SIZE);
+
+    debug_object_texture = create_layer_texture(debug_object_renderer,
+                                                WINDOW_WIDTH, WINDOW_HEIGHT);
+
+    debug_tile_surface_width = tile_window_width;
+    debug_tile_surface_height = tile_window_height;
+    debug_tile_surface.resize(static_cast<size_t>(debug_tile_surface_width) *
+                              static_cast<size_t>(debug_tile_surface_height));
+    if (debug_tile_renderer != nullptr) {
+        debug_tile_texture =
+            SDL_CreateTexture(debug_tile_renderer, SDL_PIXELFORMAT_ARGB8888,
+                              SDL_TEXTUREACCESS_STREAMING,
+                              debug_tile_surface_width,
+                              debug_tile_surface_height);
+        if (debug_tile_texture != nullptr) {
+            SDL_SetTextureScaleMode(debug_tile_texture, SDL_SCALEMODE_NEAREST);
+        }
+    }
+}
 #endif
 
 }  // namespace GBC
