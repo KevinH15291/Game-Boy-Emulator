@@ -39,17 +39,13 @@ void SM83::execute() {
         static constexpr std::array<half, 5> interrupt_handlers = {
             0x40, 0x48, 0x50, 0x58, 0x60};
 
-        for (int i = 0; i < 5; ++i) {
-            if (isBitSet(pending_interrupts, i)) {
-                IME = false;
-                auto& if_reg =
-                    memory->IOrange[addr(IORegister::IF) -
-                                    addr(MemoryRegion::IO_REGISTERS)];
-                if_reg = clearBit(if_reg, i);
-                call_interrupt(interrupt_handlers[i]);
-                return;
-            }
-        }
+        int i = __builtin_ctz(pending_interrupts);
+        IME = false;
+        auto& if_reg = memory->IOrange[addr(IORegister::IF) -
+                                       addr(MemoryRegion::IO_REGISTERS)];
+        if_reg = clearBit(if_reg, i);
+        call_interrupt(interrupt_handlers[i]);
+        return;
     }
 
     if (IMEdelay) {

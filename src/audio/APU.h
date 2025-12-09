@@ -147,6 +147,7 @@ class APU {
     std::array<bool, 4> channelMuted{};
 
     float masterVolume = 1.0f;
+    float fadeLevel = 1.0f;
 
     bool audioExportEnabled = false;
 #ifndef __EMSCRIPTEN__

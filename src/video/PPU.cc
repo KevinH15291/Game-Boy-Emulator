@@ -17,9 +17,9 @@ void PPU::init_window() {
                                 WINDOW_HEIGHT, SDL_WINDOW_RESIZABLE, &window,
                                 &renderer);
     SDL_SetRenderLogicalPresentation(renderer, WINDOW_WIDTH, WINDOW_HEIGHT,
-                                     SDL_LOGICAL_PRESENTATION_INTEGER_SCALE);
+                                     SDL_LOGICAL_PRESENTATION_LETTERBOX);
     texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-                                SDL_TEXTUREACCESS_STATIC, WINDOW_WIDTH,
+                                SDL_TEXTUREACCESS_STREAMING, WINDOW_WIDTH,
                                 WINDOW_HEIGHT);
     SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -132,13 +132,15 @@ void PPU::execute_cycle() {
                 objnum = 0;
                 oam_scan_dot = 0;
                 oam_scan_index = 0;
+                scanline_cache.valid = false;
                 set_mode(RenderingState::OAMscan);
             }
             perform_oam_scan_step();
         } else if (dots < 252) {
             if (mode != RenderingState::draw) {
                 set_mode(RenderingState::draw);
-                renderX = 0;  // Reset renderX at start of draw phase
+                renderX = 0;
+                prepare_scanline();
             }
 
             draw_pixel();
@@ -147,7 +149,7 @@ void PPU::execute_cycle() {
                 set_mode(RenderingState::hblank);
                 renderX = 0;
             }
-            // Call HDMA only once per H-Blank period
+
             if (!hdma_done_this_line && bus != nullptr) {
                 bus->handle_hblank_hdma();
                 hdma_done_this_line = true;
@@ -167,32 +169,36 @@ void PPU::execute_cycle() {
     ++dots;
 }
 
-void PPU::draw_pixel() {
-    const bool bg_enabled = isBitSet(cached_LCDC, 0);
-    const bool obj_enabled = isBitSet(cached_LCDC, 1);
-    const bool window_enabled = isBitSet(cached_LCDC, 5);
+void PPU::prepare_scanline() {
+    scanline_cache.bg_enabled = isBitSet(cached_LCDC, 0);
+    scanline_cache.obj_enabled = isBitSet(cached_LCDC, 1);
+    scanline_cache.window_enabled = isBitSet(cached_LCDC, 5);
+    scanline_cache.scx = cached_SCX;
+    scanline_cache.scy = cached_SCY;
+    scanline_cache.obj_size = isBitSet(cached_LCDC, 2) ? 16 : 8;
+    scanline_cache.window_trigger_x = static_cast<int32_t>(cached_WX) - 7;
+    scanline_cache.window_can_activate = scanline_cache.window_enabled &&
+                                         (cached_WX <= 166) &&
+                                         window_vert_active;
+    scanline_cache.valid = true;
+}
 
-    const byte wx = cached_WX;
-    const byte scx = cached_SCX;
-    const byte scy = cached_SCY;
+void PPU::draw_pixel() {
+    const bool bg_enabled = scanline_cache.bg_enabled;
+    const bool obj_enabled = scanline_cache.obj_enabled;
 
     const int32_t screen_x = static_cast<int32_t>(renderX);
+    const bool window_active = scanline_cache.window_can_activate &&
+                               (screen_x >= scanline_cache.window_trigger_x);
 
-    const int32_t window_trigger_x = static_cast<int32_t>(wx) - 7;
-    const bool window_trigger_valid = wx <= 166;
-    const bool window_vert_line = window_vert_active;
-    const bool window_active = window_enabled && window_trigger_valid &&
-                               window_vert_line &&
-                               (screen_x >= window_trigger_x);
-
-    const byte bg_tilex =
-        static_cast<byte>((static_cast<int32_t>(scx) + screen_x) & 0xFF);
-    const byte bg_tiley =
-        static_cast<byte>((static_cast<int32_t>(scy) + lines) & 0xFF);
+    const byte bg_tilex = static_cast<byte>(
+        (static_cast<int32_t>(scanline_cache.scx) + screen_x) & 0xFF);
+    const byte bg_tiley = static_cast<byte>(
+        (static_cast<int32_t>(scanline_cache.scy) + lines) & 0xFF);
     byte window_tilex = 0;
     byte window_tiley = wly;
     if (window_active) {
-        const int32_t relative_x = screen_x - window_trigger_x;
+        const int32_t relative_x = screen_x - scanline_cache.window_trigger_x;
         window_tilex = static_cast<byte>(relative_x & 0xFF);
     }
 
@@ -289,7 +295,7 @@ void PPU::draw_pixel() {
 
 inline PPU::ObjPixel PPU::sample_object_pixel(int screen_x) {
     ObjPixel result{};
-    const byte objsize = isBitSet(cached_LCDC, 2) ? 16 : 8;
+    const byte objsize = scanline_cache.obj_size;
 
     for (int i = 0; i < static_cast<int>(objnum); ++i) {
         const obj sprite = objbuffer[i];

@@ -774,15 +774,22 @@ float APU::get_master_volume() const { return masterVolume; }
 
 void APU::queue_audio(float left, float right) {
     if (audioStream == nullptr) return;
-    sampleBuffer[bufferedSamples * 2] = left;
-    sampleBuffer[bufferedSamples * 2 + 1] = right;
+
+    int queued = SDL_GetAudioStreamQueued(audioStream);
+    constexpr int MAX_QUEUED = AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 10;
+    constexpr int MIN_QUEUED = AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 2;
+
+    if (queued > MAX_QUEUED) {
+        fadeLevel = std::max(0.0f, fadeLevel - 0.02f);
+    } else if (fadeLevel < 1.0f) {
+        fadeLevel = std::min(1.0f, fadeLevel + 0.005f);
+    }
+
+    sampleBuffer[bufferedSamples * 2] = left * fadeLevel;
+    sampleBuffer[bufferedSamples * 2 + 1] = right * fadeLevel;
     ++bufferedSamples;
 
     if (bufferedSamples >= AUDIO_BUFFER_SAMPLES) {
-        int queued = SDL_GetAudioStreamQueued(audioStream);
-        constexpr int MAX_QUEUED =
-            AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 10;
-        constexpr int MIN_QUEUED = AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 2;
         if (queued < MIN_QUEUED) {
             SDL_PutAudioStreamData(
                 audioStream, sampleBuffer.data(),
@@ -790,7 +797,7 @@ void APU::queue_audio(float left, float right) {
             bufferedSamples = 0;
             return;
         }
-        if (queued > MAX_QUEUED) {
+        if (queued > MAX_QUEUED && fadeLevel <= 0.0f) {
             bufferedSamples = 0;
             return;
         }
@@ -1130,7 +1137,7 @@ void APU::write_wave_byte(half address, byte value) {
 bool APU::is_wave_active() const { return ch3.enabled && ch3.dacEnabled; }
 
 byte APU::get_nr52_status() const {
-    byte status = 0x70;  // Default bits (0x70, not 0x70)
+    byte status = 0x70;
     if (masterEnabled) status |= 0x80;
     if (ch1.enabled) status |= 0x01;
     if (ch2.enabled) status |= 0x02;

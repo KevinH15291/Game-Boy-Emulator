@@ -490,6 +490,7 @@ inline void address_bus::handle_hdma_register(half address, byte value) {
             if ((value & 0x80) == 0) {
                 if (hdma_active && hdma_mode_hblank) {
                     cancel_hdma();
+                    return;
                 }
                 start_general_hdma(value & 0x7F);
             } else {

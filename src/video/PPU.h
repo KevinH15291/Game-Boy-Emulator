@@ -108,6 +108,20 @@ class PPU {
     bool stat_signal = false;
     void update_stat_line();
 
+    struct ScanlineCache {
+        int32_t window_trigger_x = 0;
+        bool window_can_activate = false;
+        bool bg_enabled = false;
+        bool obj_enabled = false;
+        bool window_enabled = false;
+        byte scx = 0;
+        byte scy = 0;
+        byte obj_size = 8;
+        bool valid = false;
+    };
+    ScanlineCache scanline_cache{};
+    void prepare_scanline();
+
     [[nodiscard]] std::pair<byte, byte> fetch_tile_row(
         byte tile_index, byte row, bool unsigned_index, byte bank) const;
     inline BgPixel sample_bg_pixel(half tilex, half tiley);
