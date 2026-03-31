@@ -6,6 +6,7 @@ if(EMSCRIPTEN)
   set(CMAKE_EXECUTABLE_SUFFIX ".js")
 endif()
 
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -81,6 +82,7 @@ if(EMSCRIPTEN)
     set(SDL_VIDEO ON CACHE BOOL "Enable SDL video" FORCE)
     set(SDL_RENDER ON CACHE BOOL "Enable SDL render" FORCE)
     add_subdirectory(third_party/SDL3)
+    target_compile_definitions(SDL3-static PRIVATE SDL_LEAN_AND_MEAN=1)
 else()
     find_package(SDL3)
     if(NOT SDL3_FOUND)
