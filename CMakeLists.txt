@@ -37,6 +37,7 @@ if(EMSCRIPTEN)
     add_compile_options(
         -O3
         -flto 
+        -mtail-call
         -fno-rtti 
         -fno-exceptions
         -ffast-math
@@ -68,6 +69,7 @@ if(EMSCRIPTEN)
     set(SDL_DUMMYVIDEO OFF CACHE BOOL "Disable dummy video driver" FORCE)
     set(SDL_DUMMYAUDIO OFF CACHE BOOL "Disable dummy audio driver" FORCE)
     set(SDL_DISKAUDIO OFF CACHE BOOL "Disable disk audio driver" FORCE)
+    set(SDL_CLOCK_GETTIME OFF CACHE BOOL "Disable clock_gettime usage" FORCE)
     set(SDL_AUDIO ON CACHE BOOL "Enable SDL audio" FORCE)
     set(SDL_VIDEO ON CACHE BOOL "Enable SDL video" FORCE)
     set(SDL_RENDER ON CACHE BOOL "Enable SDL render" FORCE)
@@ -140,6 +142,7 @@ if(EMSCRIPTEN)
     target_compile_options(GBC PRIVATE 
         -O3
         -flto 
+        -mtail-call
         -fno-rtti 
         -fno-exceptions
         -ffast-math
@@ -162,11 +165,14 @@ if(EMSCRIPTEN)
         --strip-producers
         -O3
         -flto
+        -mtail-call
+        -sMALLOC=emmalloc
         -sSTACK_SIZE=2097152
         -sALLOW_MEMORY_GROWTH=1
         -sASSERTIONS=0
         -sDISABLE_EXCEPTION_CATCHING=1
         -sFILESYSTEM=1
+        -sFORCE_FILESYSTEM=1
         -sMODULARIZE=1
         -sEXPORT_ES6=1
         -sEXIT_RUNTIME=1
