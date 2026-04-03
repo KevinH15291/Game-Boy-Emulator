@@ -1,29 +1,50 @@
 # .clangd
+
+If:
+  PathMatch: [.*\.cpp, .*\.hpp, .*\.cc, .*\.hh, .*\.h]
 CompileFlags:
-  Add: [
-    -isystem /usr/local/include,
-    -std=gnu++23,
-  ]
-  
+  Add: [-std=gnu++26, -fexperimental-library]
+
 Diagnostics:
   ClangTidy:
-    Add: [modernize*,cppcoreguidelines*,bugprone*,performance*,readability*,portability*, misc*]
+    Add:
+      [
+        bugprone*,
+        cppcoreguidelines*,
+        misc*,
+        modernize*,
+        performance*,
+        portability*,
+        readability*,
+      ]
     FastCheckFilter: Loose
-    Remove: [readability-function-cognitive-complexity, 
+    Remove: [modernize-use-trailing-return-type, 
              readability-identifier-length, 
-             modernize-use-trailing-return-type, 
-             misc-non-private-member-variables-in-classes,
+             readability-math-missing-parentheses,
              cppcoreguidelines-avoid-magic-numbers,
-             readability-magic-numbers]
+             readability-magic-numbers,
+             cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
+             cppcoreguidelines-pro-bounds-constant-array-index,
+             cppcoreguidelines-pro-bounds-pointer-arithmetic,
+             cppcoreguidelines-pro-type-reinterpret-cast,
+             cppcoreguidelines-special-member-functions,]
     CheckOptions:
       readability-implicit-bool-conversion.AllowIntegerConditions: true
       readability-implicit-bool-conversion.AllowPointerConditions: true
       readability-braces-around-statements.ShortStatementLines: "1"
-      cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
-       
+      # cppcoreguidelines-special-member-functions = true
+      misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic: true
+      bugprone-implicit-widening-of-multiplication-result.IgnoreConstantIntExpr: true
+      AllowSoleDefaultDtor: true
 
 Completion:
   AllScopes: Yes
-  ArgumentLists: FullPlaceholders      
-Index:
-  StandardLibrary: true
+  ArgumentLists: FullPlaceholders
+  HeaderInsertion: IWYU
+
+Hover:
+  ShowAKA: True
+  MacroContentsLimit: 2048
+
+Documentation:
+  CommentFormat: Doxygen

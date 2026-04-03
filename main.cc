@@ -13,9 +13,11 @@
 
 #include "GBC.h"
 
-static GBC::GBC* g_gbc = nullptr;
-
 #ifdef __EMSCRIPTEN__
+namespace {
+GBC::GBC* g_gbc = nullptr;
+}  // namespace
+
 extern "C" {
 int upload_rom(uint8_t* data, size_t length) {
     if (!g_gbc) return 0;
@@ -73,8 +75,8 @@ void emscripten_frame_loop(void* arg) {
 
     static double lastTime = 0.0;
     static double accumulator = 0.0;
-    constexpr double stepMs = 1000.0 / 60.0;
-    constexpr double maxDtMs = 100.0;
+    static constexpr double stepMs = 1000.0 / 60.0;
+    static constexpr double maxDtMs = 100.0;
 
     if (lastTime == 0.0) {
         lastTime = emscripten_get_now();
@@ -151,7 +153,6 @@ int main(int argc, char* argv[]) {
     }
 
     GBC::GBC gbc(!headless);
-    g_gbc = &gbc;
 
     if (exportAudio) {
         gbc.apu.enable_audio_export(true);

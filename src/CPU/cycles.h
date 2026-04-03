@@ -1,14 +1,13 @@
 #pragma once
 
 #include <array>
-#include <cstdint>
 #include <string_view>
 
 #include "../bit_ops.h"
 
 namespace GBC {
 
-constexpr std::array<byte, 256> opcode_cycles = {
+static constexpr std::array<byte, 256> opcode_cycles = {
     1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1, 1, 3, 2, 2, 1, 1, 2, 1,
     3, 2, 2, 2, 1, 1, 2, 1, 2, 3, 2, 2, 1, 1, 2, 1, 2, 2, 2, 2, 1, 1, 2, 1,
     2, 3, 2, 2, 3, 3, 3, 1, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
@@ -20,7 +19,7 @@ constexpr std::array<byte, 256> opcode_cycles = {
     2, 3, 3, 4, 3, 4, 2, 4, 2, 4, 3, 0, 3, 6, 2, 4, 2, 3, 3, 0, 3, 4, 2, 4,
     2, 4, 3, 0, 3, 0, 2, 4, 3, 3, 2, 0, 0, 4, 2, 4, 4, 1, 4, 0, 0, 0, 2, 4,
     3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4};
-constexpr std::array<byte, 256> opcode_cycles_branched = {
+static constexpr std::array<byte, 256> opcode_cycles_branched = {
     1, 3, 2, 2, 1, 1, 2, 1, 5, 2, 2, 2, 1, 1, 2, 1, 1, 3, 2, 2, 1, 1, 2, 1,
     3, 2, 2, 2, 1, 1, 2, 1, 3, 3, 2, 2, 1, 1, 2, 1, 3, 2, 2, 2, 1, 1, 2, 1,
     3, 3, 2, 2, 3, 3, 3, 1, 3, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1,
@@ -32,7 +31,7 @@ constexpr std::array<byte, 256> opcode_cycles_branched = {
     5, 3, 4, 4, 6, 4, 2, 4, 5, 4, 4, 0, 6, 6, 2, 4, 5, 3, 4, 0, 6, 4, 2, 4,
     5, 4, 4, 0, 6, 0, 2, 4, 3, 3, 2, 0, 0, 4, 2, 4, 4, 1, 4, 0, 0, 0, 2, 4,
     3, 3, 2, 1, 0, 4, 2, 4, 3, 2, 4, 1, 0, 0, 2, 4};
-constexpr std::array<byte, 256> opcode_cycles_cb = {
+static constexpr std::array<byte, 256> opcode_cycles_cb = {
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 3, 2,
@@ -45,7 +44,8 @@ constexpr std::array<byte, 256> opcode_cycles_cb = {
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2,
     2, 2, 2, 2, 2, 2, 4, 2, 2, 2, 2, 2, 2, 2, 4, 2};
 
-constexpr std::array<std::string_view, 256> instructions = {
+#ifndef __EMSCRIPTEN__
+static constexpr std::array<std::string_view, 256> instructions = {
     "NOP",          "LD BC, d16", "LD (BC), A",  "INC BC",
     "INC B",        "DEC B",      "LD B, d8",    "RLCA",
     "LD (a16), SP", "ADD HL, BC", "LD A, (BC)",  "DEC BC",
@@ -110,7 +110,7 @@ constexpr std::array<std::string_view, 256> instructions = {
     "No Opcode",    "PUSH AF",    "OR d8",       "RST 6",
     "LD HL, SP+s8", "LD SP, HL",  "LD A, (a16)", "EI",
     "No Opcode",    "No Opcode",  "CP d8",       "RST 7"};
-constexpr std::array<std::string_view, 256> CBinstructions = {
+static constexpr std::array<std::string_view, 256> CBinstructions = {
     "RLC B",       "RLC C",       "RLC D",       "RLC E",       "RLC H",
     "RLC L",       "RLC (HL)",    "RLC A",       "RRC B",       "RRC C",
     "RRC D",       "RRC E",       "RRC H",       "RRC L",       "RRC (HL)",
@@ -163,5 +163,5 @@ constexpr std::array<std::string_view, 256> CBinstructions = {
     "SET 6, L",    "SET 6, (HL)", "SET 6, A",    "SET 7, B",    "SET 7, C",
     "SET 7, D",    "SET 7, E",    "SET 7, H",    "SET 7, L",    "SET 7, (HL)",
     "SET 7, A"};
-
+#endif
 }  // namespace GBC

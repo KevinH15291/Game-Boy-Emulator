@@ -31,8 +31,8 @@ void cpu_mark_tima_written(SM83 *);
 using byte = uint8_t;
 using half = uint16_t;
 
-constexpr size_t KB = 1ull << 10;
-constexpr size_t MB = 1ull << 20;
+constexpr size_t KB = 1ULL << 10;
+constexpr size_t MB = 1ULL << 20;
 constexpr size_t MAX_CART_ROM_SIZE = 8 * MB;
 
 constexpr size_t BOOTROM_SIZE = 0x100;
@@ -151,14 +151,14 @@ class address_bus {
 
    private:
     CgbConfig &config;
-    std::array<byte, BOOTROM_SIZE> bootrom;
+    std::array<byte, BOOTROM_SIZE> bootrom{};
     std::vector<byte> cartROM;
-    std::array<byte, CART_RAM_SIZE> cartRAM;
-    std::array<byte, WORK_RAM_SIZE> workRAM;
-    std::array<byte, VIDEO_RAM_SIZE> videoRAM;
-    std::array<byte, OAM_SIZE> OAM;
-    std::array<byte, IO_RANGE_SIZE> IOrange;
-    std::array<byte, HRAM_SIZE> HRAM;
+    std::array<byte, CART_RAM_SIZE> cartRAM{};
+    std::array<byte, WORK_RAM_SIZE> workRAM{};
+    std::array<byte, VIDEO_RAM_SIZE> videoRAM{};
+    std::array<byte, OAM_SIZE> OAM{};
+    std::array<byte, IO_RANGE_SIZE> IOrange{};
+    std::array<byte, HRAM_SIZE> HRAM{};
     std::array<byte, 5> rtc_registers = {0, 0, 0, 0, 0};
     std::array<byte, 5> rtc_latched = {0, 0, 0, 0, 0};
     bool rtc_halted = false;
@@ -203,8 +203,8 @@ class address_bus {
     bool booting = false;
     bool latched = false;
 
-    class APU *apu = nullptr;
-    class PPU *ppu = nullptr;
+    APU *apu = nullptr;
+    PPU *ppu = nullptr;
     SM83 *cpu = nullptr;
 
     friend class SM83;
@@ -254,12 +254,12 @@ inline uint64_t decode_rtc_registers(const std::array<byte, 5> &regs) {
 
 inline void encode_rtc_seconds(uint64_t seconds, bool halted,
                                std::array<byte, 5> &regs) {
-    uint64_t days = seconds / (60ull * 60 * 24);
-    seconds %= (60ull * 60 * 24);
-    const uint64_t hours = seconds / (60ull * 60);
-    seconds %= (60ull * 60);
-    const uint64_t minutes = seconds / 60ull;
-    const uint64_t secs = seconds % 60ull;
+    uint64_t days = seconds / (60ULL * 60 * 24);
+    seconds %= (60ULL * 60 * 24);
+    const uint64_t hours = seconds / (60ULL * 60);
+    seconds %= (60ULL * 60);
+    const uint64_t minutes = seconds / 60ULL;
+    const uint64_t secs = seconds % 60ULL;
 
     regs[0] = static_cast<byte>(secs & 0x3F);
     regs[1] = static_cast<byte>(minutes & 0x3F);
@@ -311,9 +311,9 @@ inline void address_bus::increment_obpi() { obpi = (obpi + 1) & 0x3F; }
 
 inline void address_bus::sync_key_registers() {
     constexpr auto io_base = addr(MemoryRegion::IO_REGISTERS);
-    const size_t key0_index =
+    const auto key0_index =
         static_cast<size_t>(addr(CGBRegister::KEY0) - io_base);
-    const size_t key1_index =
+    const auto key1_index =
         static_cast<size_t>(addr(CGBRegister::KEY1) - io_base);
     const byte key0_value = config.cgb_mode ? 0x7F : 0xFF;
     byte key1_value = 0x7E;
@@ -446,6 +446,9 @@ inline void address_bus::handle_rtc_register_write(byte reg_index, byte value) {
             rtc_registers[4] = control;
             break;
         }
+        default:
+
+            break;
     }
 
     if (!rtc_halted) {
@@ -544,7 +547,7 @@ inline byte address_bus::read_internal(half address, bool privileged) {
     }
 
     if (bus_internal::in_region(address, bus_internal::kWorkRamN)) {
-        return workRAM[address + static_cast<int>(wram_bank) * 4 * KB -
+        return workRAM[address + static_cast<size_t>(wram_bank) * 4 * KB -
                        bus_internal::kWorkRamN.begin];
     }
 
@@ -554,7 +557,7 @@ inline byte address_bus::read_internal(half address, bool privileged) {
         if (bus_internal::in_region(echo_address, bus_internal::kWorkRam0)) {
             return workRAM[echo_address - bus_internal::kWorkRam0.begin];
         }
-        return workRAM[echo_address + static_cast<int>(wram_bank) * 4 * KB -
+        return workRAM[echo_address + static_cast<size_t>(wram_bank) * 4 * KB -
                        bus_internal::kWorkRamN.begin];
     }
 
@@ -602,7 +605,7 @@ inline byte address_bus::read_internal(half address, bool privileged) {
                     0x0F) |
                    0xF0;
         }
-        return cartRAM[address + 8 * KB * static_cast<int>(eram_bank) -
+        return cartRAM[address + 8 * KB * static_cast<size_t>(eram_bank) -
                        bus_internal::kExternalRam.begin];
     }
 
@@ -763,19 +766,19 @@ inline void address_bus::write_internal(half address, byte value,
     }
 
     if (bus_internal::in_region(address, bus_internal::kWorkRamN)) {
-        workRAM[address + static_cast<int>(wram_bank) * 4 * KB -
+        workRAM[address + static_cast<size_t>(wram_bank) * 4 * KB -
                 addr(MemoryRegion::WORK_RAM_BANKN)] = value;
         return;
     }
 
     if (address >= addr(MemoryRegion::ECHO_RAM1) &&
         address <= addr(MemoryRegion::EECHO_RAM2)) {
-        half echo_address = static_cast<half>(address - 0x2000);
+        const auto echo_address = static_cast<half>(address - 0x2000);
         if (bus_internal::in_region(echo_address, bus_internal::kWorkRam0)) {
             workRAM[echo_address - bus_internal::kWorkRam0.begin] = value;
             return;
         }
-        workRAM[echo_address + static_cast<int>(wram_bank) * 4 * KB -
+        workRAM[echo_address + static_cast<size_t>(wram_bank) * 4 * KB -
                 bus_internal::kWorkRamN.begin] = value;
         return;
     }
@@ -1087,8 +1090,8 @@ inline uint32_t address_bus::get_bg_color(byte palette, byte color) const {
     const byte bgp =
         IOrange[addr(VideoRegister::BGP) - addr(MemoryRegion::IO_REGISTERS)];
     const byte palette_entry = (bgp >> (2 * (color & 0x3))) & 0x3;
-    static constexpr std::array<uint32_t, 4> dmg_palette{0xE0F8D0u, 0x88C070u,
-                                                         0x346856u, 0x081820u};
+    static constexpr std::array<uint32_t, 4> dmg_palette{0xE0F8D0U, 0x88C070U,
+                                                         0x346856U, 0x081820U};
     return dmg_palette[palette_entry];
 }
 
@@ -1104,7 +1107,7 @@ inline uint32_t address_bus::get_obj_color(byte palette, byte color) const {
         IOrange[reg_address - addr(MemoryRegion::IO_REGISTERS)];
     const byte palette_entry = (reg_value >> (2 * (color & 0x3))) & 0x3;
     static constexpr std::array<uint32_t, 4> dmg_obj_palette{
-        0xE0F8D0u, 0xF8D878u, 0xC05800u, 0x181010u};
+        0xE0F8D0U, 0xF8D878U, 0xC05800U, 0x181010U};
     return dmg_obj_palette[palette_entry == 0 ? 0 : palette_entry];
 }
 

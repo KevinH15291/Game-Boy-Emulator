@@ -3,12 +3,8 @@ project(GBC)
 
 
 if(EMSCRIPTEN)
-  set(CMAKE_EXECUTABLE_SUFFIX ".js")
+  set(gbc_executable_suffix ".js")
 endif()
-
-
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT EMSCRIPTEN)
     set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -18,29 +14,19 @@ endif()
 option(ENABLE_PROFILING "Enable profiling instrumentation" OFF)
 if(ENABLE_PROFILING)
     if(EMSCRIPTEN)
-        # Emscripten profiling flags
-        add_compile_options(-g)  
-        add_link_options(-sPROFILING_FUNCS=1 -sDEMANGLE_SUPPORT=1)
         message(STATUS "Emscripten profiling enabled")
     else()
-        # Native gprof profiling
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pg -g -O3")
-        set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -pg -g -O3")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -pg")
         message(STATUS "Native profiling enabled with gprof")
     endif()
 endif()
 
 
 option(ENABLE_LTO "Enable Link-Time Optimization" ON)
-option(ENABLE_PPU_DEBUG "Enable native PPU debug visualizers" ON)
+option(ENABLE_PPU_DEBUG "Enable native PPU debug visualizers" OFF)
 if(ENABLE_LTO)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT LTO_SUPPORTED OUTPUT output)
-    if(LTO_SUPPORTED)
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-        message(STATUS "Link-Time Optimization (LTO) enabled")
-    else()
+    if(NOT LTO_SUPPORTED)
         message(STATUS "LTO not supported: ${output}")
     endif()
 endif()
@@ -78,11 +64,17 @@ if(EMSCRIPTEN)
     set(SDL_TRAY OFF CACHE BOOL "Disable tray subsystem" FORCE)
     set(SDL_JOYSTICK OFF CACHE BOOL "Disable joystick subsystem" FORCE)
     set(SDL_VIRTUAL_JOYSTICK OFF CACHE BOOL "Disable virtual joystick" FORCE)
+    set(SDL_OFFSCREEN OFF CACHE BOOL "Disable offscreen video driver" FORCE)
+    set(SDL_DUMMYVIDEO OFF CACHE BOOL "Disable dummy video driver" FORCE)
+    set(SDL_DUMMYAUDIO OFF CACHE BOOL "Disable dummy audio driver" FORCE)
+    set(SDL_DISKAUDIO OFF CACHE BOOL "Disable disk audio driver" FORCE)
     set(SDL_AUDIO ON CACHE BOOL "Enable SDL audio" FORCE)
     set(SDL_VIDEO ON CACHE BOOL "Enable SDL video" FORCE)
     set(SDL_RENDER ON CACHE BOOL "Enable SDL render" FORCE)
     add_subdirectory(third_party/SDL3)
-    target_compile_definitions(SDL3-static PRIVATE SDL_LEAN_AND_MEAN=1)
+    target_compile_definitions(SDL3-static PRIVATE
+        SDL_LEAN_AND_MEAN=1
+        SDL_DISABLE_INVALID_PARAMS=1)
 else()
     find_package(SDL3)
     if(NOT SDL3_FOUND)
@@ -109,8 +101,6 @@ else()
     endif()
 endif()
 
-include_directories(src src/CPU src/MMU src/video src/audio)
-
 # Source files
 set(SOURCES
     main.cc
@@ -124,8 +114,30 @@ set(SOURCES
 # Create executable
 add_executable(GBC ${SOURCES})
 
+target_compile_features(GBC PRIVATE cxx_std_23)
+target_include_directories(GBC PRIVATE src src/CPU src/MMU src/video src/audio)
+
 if(EMSCRIPTEN)
-    target_compile_options(GBC PUBLIC 
+    set_target_properties(GBC PROPERTIES SUFFIX "${gbc_executable_suffix}")
+endif()
+
+if(ENABLE_PROFILING)
+    if(EMSCRIPTEN)
+        target_compile_options(GBC PRIVATE -g)
+        target_link_options(GBC PRIVATE -sPROFILING_FUNCS=1 -sDEMANGLE_SUPPORT=1)
+    else()
+        target_compile_options(GBC PRIVATE -pg -g -O3)
+        target_link_options(GBC PRIVATE -pg)
+    endif()
+endif()
+
+if(ENABLE_LTO AND LTO_SUPPORTED)
+    set_property(TARGET GBC PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+    message(STATUS "Link-Time Optimization (LTO) enabled")
+endif()
+
+if(EMSCRIPTEN)
+    target_compile_options(GBC PRIVATE 
         -O3
         -flto 
         -fno-rtti 
@@ -138,7 +150,7 @@ if(EMSCRIPTEN)
         -fomit-frame-pointer
         -fvisibility=hidden)
     target_include_directories(GBC PRIVATE ${SDL3_SOURCE_DIR}/include)
-    target_link_options(GBC PUBLIC 
+    target_link_options(GBC PRIVATE 
         --closed-world
         --ignore-implicit-traps
         --traps-never-happen
@@ -183,7 +195,7 @@ if(EMSCRIPTEN)
         COMMENT "Copying Emscripten outputs to prebuilt-web/"
     )
 else()
-    target_compile_options(GBC PRIVATE -O3 -march=native -mtune=native)
+    target_compile_options(GBC PRIVATE -O3 -march=native -mtune=native -Wall)
 
     if(SDL3_FOUND)
         target_link_libraries(GBC PRIVATE SDL3::SDL3)
@@ -196,7 +208,6 @@ else()
     endif()
 endif()
 
-if(WIN32)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /STACK:8000000")
+if(MSVC)
+    target_link_options(GBC PRIVATE /STACK:8000000)
 endif()
-

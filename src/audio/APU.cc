@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <iostream>
@@ -32,16 +31,15 @@ constexpr std::array<std::array<int8_t, 8>, 4> DUTY_TABLE{{
     {{1, 0, 0, 1, 1, 1, 1, 1}},
 }};
 
-constexpr std::array<half, 8> DIVISOR_LOOKUP{8, 16, 32, 48, 64, 80, 96, 112};
+// constexpr std::array<half, 8> DIVISOR_LOOKUP{8, 16, 32, 48, 64, 80, 96, 112};
 
-static inline half noise_reload(byte s, byte r) {
+inline half noise_reload(byte s, byte r) {
     if (s >= 14) return 0;
     half base = (r == 0) ? 4 : (8 * r);
-    return static_cast<half>(base) << s;
+    return base << s;
 }
 
-static inline bool sweep_would_overflow(half frequency, bool negate,
-                                        byte shift) {
+inline bool sweep_would_overflow(half frequency, bool negate, byte shift) {
     if (shift == 0) return false;
     half delta = frequency >> shift;
     uint32_t candidate = negate ? static_cast<uint32_t>(frequency) - delta
@@ -70,26 +68,26 @@ constexpr std::array<std::pair<AudioRegister, byte>, 20> BOOT_REG_DEFAULTS{{
     {AudioRegister::NR50, 0x77}, {AudioRegister::NR51, 0xF3},
 }};
 
-inline int8_t apply_volume_code(byte sample, byte volumeCode) {
-    switch (volumeCode) {
-        case 0:
-            return 0;
-        case 1:
-            return sample;
-        case 2:
-            return sample >> 1;
-        case 3:
-            return sample >> 2;
-        default:
-            return sample;
-    }
-}
+// inline int8_t apply_volume_code(byte sample, byte volumeCode) {
+//     switch (volumeCode) {
+//         case 0:
+//             return 0;
+//         case 1:
+//             return sample;
+//         case 2:
+//             return sample >> 1;
+//         case 3:
+//             return sample >> 2;
+//         default:
+//             return sample;
+//     }
+// }
 
-inline int16_t clamp16(int value) {
-    if (value < -32768) return -32768;
-    if (value > 32767) return 32767;
-    return static_cast<int16_t>(value);
-}
+// inline int16_t clamp16(int value) {
+//     if (value < -32768) return -32768;
+//     if (value > 32767) return 32767;
+//     return static_cast<int16_t>(value);
+// }
 
 #ifndef __EMSCRIPTEN__
 void write_wav_header(std::ofstream &file, uint32_t sampleCount) {
@@ -410,7 +408,7 @@ void APU::clock_frame_sequencer() {
 }
 
 void APU::clock_length_units() {
-    auto decrement_length = [this](auto &channel, bool lengthEnabled) {
+    auto decrement_length = [](auto &channel, bool lengthEnabled) {
         if (!lengthEnabled) return;
         if (channel.skipNextLengthClock) {
             channel.skipNextLengthClock = false;
@@ -457,10 +455,11 @@ void APU::clock_sweep_unit() {
 
                 if (sweepShift != 0) {
                     half second = ch1.shadowFrequency >> sweepShift;
-                    if (sweepNegate)
+                    if (sweepNegate) {
                         second = ch1.shadowFrequency - second;
-                    else
+                    } else {
                         second = ch1.shadowFrequency + second;
+                    }
                     if (second > 2047) {
                         ch1.enabled = false;
                         update_status_bits();
@@ -688,7 +687,7 @@ int8_t APU::sample_noise() const {
     if (!ch4.enabled || !ch4.dacEnabled) return 0;
     byte output = (~ch4.lfsr) & 1;
     int value = output ? ch4.envelopeVolume : 0;
-    int centered = 15 - (static_cast<int>(value) * 2);
+    int centered = 15 - (value * 2);
     return static_cast<int8_t>(centered << 2);
 }
 
@@ -734,40 +733,39 @@ void APU::mix_and_output() {
     int rightMix = mix_channel(getBitRange(nr51_val, 4, 4));
 
     float leftVolume =
-        static_cast<float>(getBitRange(nr50_val, 4, 3) + 1) / 8.0f;
+        static_cast<float>(getBitRange(nr50_val, 4, 3) + 1) / 8.0F;
     float rightVolume =
-        static_cast<float>(getBitRange(nr50_val, 0, 3) + 1) / 8.0f;
+        static_cast<float>(getBitRange(nr50_val, 0, 3) + 1) / 8.0F;
 
-    float leftIn = static_cast<float>(leftMix) * leftVolume / 240.0f;
-    float rightIn = static_cast<float>(rightMix) * rightVolume / 240.0f;
+    float leftIn = static_cast<float>(leftMix) * leftVolume / 240.0F;
+    float rightIn = static_cast<float>(rightMix) * rightVolume / 240.0F;
 
-    leftIn = std::max(-1.0f, std::min(1.0f, leftIn));
-    rightIn = std::max(-1.0f, std::min(1.0f, rightIn));
+    leftIn = std::max(-1.0F, std::min(1.0F, leftIn));
+    rightIn = std::max(-1.0F, std::min(1.0F, rightIn));
 
     bool dacsEnabled =
         ch1.dacEnabled || ch2.dacEnabled || ch3.dacEnabled || ch4.dacEnabled;
 
-    float leftSample, rightSample;
+    float leftSample = 0.0F;
+    float rightSample = 0.0F;
     if (dacsEnabled) {
         leftSample = leftIn - leftCapacitor;
-        leftCapacitor = leftIn - (leftSample * 0.998943f);
+        leftCapacitor = leftIn - (leftSample * 0.998943F);
         rightSample = rightIn - rightCapacitor;
-        rightCapacitor = rightIn - (rightSample * 0.998943f);
+        rightCapacitor = rightIn - (rightSample * 0.998943F);
     } else {
-        leftSample = 0.0f;
-        rightSample = 0.0f;
-        leftCapacitor = 0.0f;
-        rightCapacitor = 0.0f;
+        leftCapacitor = 0.0F;
+        rightCapacitor = 0.0F;
     }
 
-    leftSample = std::max(-1.0f, std::min(1.0f, leftSample));
-    rightSample = std::max(-1.0f, std::min(1.0f, rightSample));
+    leftSample = std::max(-1.0F, std::min(1.0F, leftSample));
+    rightSample = std::max(-1.0F, std::min(1.0F, rightSample));
 
     queue_audio(leftSample * masterVolume, rightSample * masterVolume);
 }
 
 void APU::set_master_volume(float volume) {
-    masterVolume = std::max(0.0f, std::min(1.0f, volume));
+    masterVolume = std::max(0.0F, std::min(1.0F, volume));
 }
 
 float APU::get_master_volume() const { return masterVolume; }
@@ -780,9 +778,9 @@ void APU::queue_audio(float left, float right) {
     constexpr int MIN_QUEUED = AUDIO_BUFFER_SAMPLES * sizeof(float) * 2 * 2;
 
     if (queued > MAX_QUEUED) {
-        fadeLevel = std::max(0.0f, fadeLevel - 0.02f);
-    } else if (fadeLevel < 1.0f) {
-        fadeLevel = std::min(1.0f, fadeLevel + 0.005f);
+        fadeLevel = std::max(0.0F, fadeLevel - 0.02F);
+    } else if (fadeLevel < 1.0F) {
+        fadeLevel = std::min(1.0F, fadeLevel + 0.005F);
     }
 
     sampleBuffer[bufferedSamples * 2] = left * fadeLevel;
@@ -797,7 +795,7 @@ void APU::queue_audio(float left, float right) {
             bufferedSamples = 0;
             return;
         }
-        if (queued > MAX_QUEUED && fadeLevel <= 0.0f) {
+        if (queued > MAX_QUEUED && fadeLevel <= 0.0F) {
             bufferedSamples = 0;
             return;
         }
@@ -830,7 +828,7 @@ void APU::enable_audio_export(bool enable) {
                 write_wav_header(channelFiles[i], 0);
             } else {
                 std::cerr << "Failed to open " << filenames[i] << " for writing"
-                          << std::endl;
+                          << '\n';
             }
         }
         exportedSampleCount = 0;
@@ -838,7 +836,7 @@ void APU::enable_audio_export(bool enable) {
         std::cout
             << "Audio export enabled. Writing to channel1_square.wav, "
                "channel2_square.wav, channel3_wave.wav, channel4_noise.wav"
-            << std::endl;
+            << '\n';
     } else {
         close_audio_export();
     }
@@ -847,15 +845,15 @@ void APU::enable_audio_export(bool enable) {
 void APU::close_audio_export() {
     if (!audioExportEnabled) return;
 
-    for (int i = 0; i < 4; ++i) {
-        if (channelFiles[i].is_open()) {
-            channelFiles[i].seekp(0, std::ios::beg);
-            write_wav_header(channelFiles[i], exportedSampleCount);
-            channelFiles[i].close();
+    for (auto &channelFile : channelFiles) {
+        if (channelFile.is_open()) {
+            channelFile.seekp(0, std::ios::beg);
+            write_wav_header(channelFile, exportedSampleCount);
+            channelFile.close();
         }
     }
     std::cout << "Audio export closed. Exported " << exportedSampleCount
-              << " samples per channel." << std::endl;
+              << " samples per channel." << '\n';
     audioExportEnabled = false;
 }
 #endif
@@ -1097,6 +1095,8 @@ void APU::write_register(half address, byte value) {
                 write_reg(AudioRegister::NR52, (value & 0xFE) | (old_nr52 & 1));
             }
             break;
+        default:
+            break;
     }
 }
 
@@ -1110,12 +1110,8 @@ byte APU::read_wave_byte(half address) const {
             byte byteIndex = ch3.position >> 1;
             if (index == byteIndex) {
                 const byte wave_byte = waveRAM[byteIndex];
-                byte sample_value;
-                if (ch3.position & 1) {
-                    sample_value = wave_byte & 0x0F;
-                } else {
-                    sample_value = wave_byte >> 4;
-                }
+                byte sample_value =
+                    (ch3.position & 1) ? (wave_byte & 0x0F) : (wave_byte >> 4);
                 return static_cast<byte>((sample_value << 4) | sample_value);
             }
         }

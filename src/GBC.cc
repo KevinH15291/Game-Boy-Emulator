@@ -125,7 +125,7 @@ void GBC::run() {
     }
     bool breakflag = false;
 
-    constexpr double FRAME_TIME_MS = 1000.0 / 60;
+    // constexpr double FRAME_TIME_MS = 1000.0 / 60;
     constexpr auto FRAME_TIME_NS =
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::duration<double>(1.0 / 60));

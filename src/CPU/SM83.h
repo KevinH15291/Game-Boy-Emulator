@@ -18,22 +18,28 @@ constexpr uint32_t SINGLE_TIME_MHZ = 4194304;
 class SM83 {
    public:
     SM83(address_bus *memory, CgbConfig &config)
-        : memory(memory), config(config) {
-        r8.fill(0);
-    }
+        : memory(memory), config(config) {}
 
     address_bus *memory;
     CgbConfig &config;
 
-    std::array<byte, 8> r8;
+    std::array<byte, 8> r8{};
 
-    uint32_t divcounter = 0, timareg = 0, tacreg = 0;
+    uint32_t divcounter = 0;
+    uint32_t timareg = 0;
+    uint32_t tacreg = 0;
     byte prev_timer_bit = 0;
     byte tima_overflow_cycles = 0;
-    half pc = 0, sp = 0xFFFE;
+
+    half pc = 0;
+    half sp = 0xFFFE;
     half opcode = 0;
     byte cycles = 0;
-    bool IME = false, IMEdelay = false, halted = false, stathigh = false;
+
+    bool IME = false;
+    bool IMEdelay = false;
+    bool halted = false;
+    bool stathigh = false;
     bool tima_written_this_cycle = false;
     bool halt_bug = false;
 
@@ -46,80 +52,32 @@ class SM83 {
     }
     void mark_tima_written() { tima_written_this_cycle = true; }
 
-    [[gnu::always_inline]] inline bool getZeroFlag() const {
-        return isBitSet(r8[6], 7);
-    }
-    [[gnu::always_inline]] inline bool getNFlag() const {
-        return isBitSet(r8[6], 6);
-    }
-    [[gnu::always_inline]] inline bool getHalfCarryFlag() const {
-        return isBitSet(r8[6], 5);
-    }
-    [[gnu::always_inline]] inline bool getCarryFlag() const {
-        return isBitSet(r8[6], 4);
-    }
+    [[gnu::always_inline]] bool getZeroFlag() const;
+    [[gnu::always_inline]] bool getNFlag() const;
+    [[gnu::always_inline]] bool getHalfCarryFlag() const;
+    [[gnu::always_inline]] bool getCarryFlag() const;
 
-    [[gnu::always_inline]] inline void setZeroFlag(bool val) {
-        r8[6] = val ? setBit(r8[6], 7) : clearBit(r8[6], 7);
-    }
-    [[gnu::always_inline]] inline void setNFlag(bool val) {
-        r8[6] = val ? setBit(r8[6], 6) : clearBit(r8[6], 6);
-    }
-    [[gnu::always_inline]] inline void setHalfCarryFlag(bool val) {
-        r8[6] = val ? setBit(r8[6], 5) : clearBit(r8[6], 5);
-    }
-    [[gnu::always_inline]] inline void setCarryFlag(bool val) {
-        r8[6] = val ? setBit(r8[6], 4) : clearBit(r8[6], 4);
-    }
+    [[gnu::always_inline]] void setZeroFlag(bool val);
+    [[gnu::always_inline]] void setNFlag(bool val);
+    [[gnu::always_inline]] void setHalfCarryFlag(bool val);
+    [[gnu::always_inline]] void setCarryFlag(bool val);
 
-    [[gnu::always_inline]] inline half getAF() const {
-        return (r8[7] << 8) | r8[6];
-    }
-    [[gnu::always_inline]] inline half getBC() const {
-        return (r8[0] << 8) | r8[1];
-    }
-    [[gnu::always_inline]] inline half getDE() const {
-        return (r8[2] << 8) | r8[3];
-    }
-    [[gnu::always_inline]] inline half getHL() const {
-        return (r8[4] << 8) | r8[5];
-    }
-    [[gnu::always_inline]] inline void setAF(half val) {
-        r8[7] = val >> 8;
-        r8[6] = val & 0xF0;
-    }
-    [[gnu::always_inline]] inline void setBC(half val) {
-        r8[0] = val >> 8;
-        r8[1] = val & 0xFF;
-    }
-    [[gnu::always_inline]] inline void setDE(half val) {
-        r8[2] = val >> 8;
-        r8[3] = val & 0xFF;
-    }
-    [[gnu::always_inline]] inline void setHL(half val) {
-        r8[4] = val >> 8;
-        r8[5] = val & 0xFF;
-    }
+    [[gnu::always_inline]] half getAF() const;
+    [[gnu::always_inline]] half getBC() const;
+    [[gnu::always_inline]] half getDE() const;
+    [[gnu::always_inline]] half getHL() const;
+    [[gnu::always_inline]] void setAF(half val);
+    [[gnu::always_inline]] void setBC(half val);
+    [[gnu::always_inline]] void setDE(half val);
+    [[gnu::always_inline]] void setHL(half val);
 
-    [[gnu::always_inline]] inline byte fetch8() { return memory->read(pc++); }
-    [[gnu::always_inline]] inline half fetch16() {
-        byte low = fetch8();
-        byte high = fetch8();
-        return low | (static_cast<half>(high) << 8);
-    }
+    [[gnu::always_inline]] byte fetch8();
+    [[gnu::always_inline]] half fetch16();
 
-    [[gnu::always_inline]] inline bool halfCarryAdd(byte a, byte b) {
-        return ((a & 0xF) + (b & 0xF)) > 0xF;
-    }
-    [[gnu::always_inline]] inline bool halfCarryAdd_WithCarry(byte a, byte b) {
-        return ((a & 0xF) + (b & 0xF) + getCarryFlag()) > 0xF;
-    }
-    [[gnu::always_inline]] inline bool halfCarrySub(byte a, byte b) {
-        return (a & 0xF) < (b & 0xF);
-    }
-    [[gnu::always_inline]] inline bool halfCarrySub_WithCarry(byte a, byte b) {
-        return (a & 0xF) < ((b & 0xF) + getCarryFlag());
-    }
+    [[gnu::always_inline]] static bool halfCarryAdd(byte a, byte b);
+    [[gnu::always_inline]] static bool halfCarrySub(byte a, byte b);
+    [[gnu::always_inline]] bool halfCarryAdd_WithCarry(byte a, byte b) const;
+    [[gnu::always_inline]] bool halfCarrySub_WithCarry(byte a, byte b) const;
 
     inline void instrNOP();
     inline void instrLdImm16SP();
@@ -218,8 +176,8 @@ class SM83 {
 
     inline void store16t1(byte reg16, half val);
     inline void store16t2(byte reg16, half val);
-    inline half load16t1(byte reg16);
-    inline half load16t2(byte reg16);
+    [[nodiscard]] inline half load16t1(byte reg16) const;
+    [[nodiscard]] inline half load16t2(byte reg16) const;
 
     inline void instrSTOP();
 

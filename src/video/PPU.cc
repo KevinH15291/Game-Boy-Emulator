@@ -1,6 +1,7 @@
 #include "PPU.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <iostream>
 #include <utility>
@@ -229,7 +230,7 @@ void PPU::draw_pixel() {
             ? bus->get_bg_color(window_pixel.palette, window_pixel.color)
             : 0;
     uint32_t bg_color_rgb =
-        0xFF000000u | (window_pixel_visible ? window_rgb : background_rgb);
+        0xFF000000U | (window_pixel_visible ? window_rgb : background_rgb);
     uint32_t final_color = bg_color_rgb;
     const bool sprite_visible = obj_pixel.has_pixel && obj_pixel.color != 0;
     const bool bg_has_color = bg_pixel.color != 0;
@@ -237,7 +238,7 @@ void PPU::draw_pixel() {
     bool obj_color_cached = false;
     const auto get_obj_color = [&]() -> uint32_t {
         if (!obj_color_cached) {
-            obj_color_rgb = 0xFF000000u | bus->get_obj_color(obj_pixel.palette,
+            obj_color_rgb = 0xFF000000U | bus->get_obj_color(obj_pixel.palette,
                                                              obj_pixel.color);
             obj_color_cached = true;
         }
@@ -246,9 +247,7 @@ void PPU::draw_pixel() {
 
     bool obj_wins = false;
     if (config.cgb_mode) {
-        if (bg_pixel.color == 0) {
-            obj_wins = true;
-        } else if (!isBitSet(cached_LCDC, 0)) {
+        if (bg_pixel.color == 0 || !isBitSet(cached_LCDC, 0)) {
             obj_wins = true;
         } else {
             const bool oam_bit7_clear = !obj_pixel.priority;
@@ -266,15 +265,13 @@ void PPU::draw_pixel() {
     }
 
     if (obj_enabled && sprite_visible) {
-        if (!bg_enabled || !bg_has_color) {
-            final_color = get_obj_color() | 0xFF000000u;
-        } else if (obj_wins) {
-            final_color = get_obj_color() | 0xFF000000u;
+        if ((!bg_enabled || !bg_has_color) || obj_wins) {
+            final_color = get_obj_color() | 0xFF000000U;
         } else {
             final_color = bg_color_rgb;
         }
     }
-    final_color |= 0xFF000000u;
+    final_color |= 0xFF000000U;
 
     if (screen_x >= 0 && screen_x < static_cast<int32_t>(WINDOW_WIDTH) &&
         lines < WINDOW_HEIGHT) {
@@ -283,7 +280,7 @@ void PPU::draw_pixel() {
         if (frame_index < frame_rgb.size()) {
             frame_rgb[frame_index] = final_color;
 #if GBC_PPU_DEBUG && !defined(__EMSCRIPTEN__)
-            constexpr uint32_t opaque = 0xFF000000u;
+            constexpr uint32_t opaque = 0xFF000000U;
             debug_obj_frame[frame_index] = (obj_enabled && sprite_visible)
                                                ? (opaque | get_obj_color())
                                                : 0;
@@ -313,8 +310,8 @@ inline PPU::ObjPixel PPU::sample_object_pixel(int screen_x) {
         const byte flags = sprite.flags;
         const bool yflip = isBitSet(flags, 6);
         const bool xflip = isBitSet(flags, 5);
-        const bool sprite_priority =
-            config.cgb_mode ? !isBitSet(flags, 7) : isBitSet(flags, 7);
+        // const bool sprite_priority =
+        //     config.cgb_mode ? !isBitSet(flags, 7) : isBitSet(flags, 7);
         const byte palette = config.cgb_mode ? getBitRange(flags, 0, 3)
                                              : (isBitSet(flags, 4) ? 1 : 0);
         const byte tile_bank = (config.cgb_mode && isBitSet(flags, 3)) ? 1 : 0;
@@ -338,7 +335,7 @@ inline PPU::ObjPixel PPU::sample_object_pixel(int screen_x) {
         byte bit_index = xflip ? static_cast<byte>(pixel_offset & 0x7)
                                : static_cast<byte>(7 - (pixel_offset & 0x7));
         bit_index &= 0x7;
-        const byte mask = static_cast<byte>(1u << bit_index);
+        const byte mask = static_cast<byte>(1U << bit_index);
         const byte color =
             ((tilelow & mask) ? 1 : 0) | ((tilehigh & mask) ? 2 : 0);
         if (color == 0) {
@@ -392,7 +389,7 @@ inline PPU::BgPixel PPU::sample_tile_map_pixel(TileMapKind kind, half tilex,
     if (config.cgb_mode && isBitSet(attributes, 5)) {
         bit_index = tilex & 0x07;
     }
-    const byte mask = static_cast<byte>(1u << bit_index);
+    const byte mask = static_cast<byte>(1U << bit_index);
     const byte color = ((tilelow & mask) ? 1 : 0) | ((tilehigh & mask) ? 2 : 0);
 
     BgPixel pixel{};
@@ -567,7 +564,8 @@ void PPU::update_debug_layer(SDL_Renderer* target_renderer,
     auto* dst = static_cast<std::uint8_t*>(pixels);
     const int row_bytes = width * static_cast<int>(sizeof(uint32_t));
     for (int y = 0; y < height; ++y) {
-        std::memcpy(dst + y * pitch, frame_data + y * width, row_bytes);
+        std::memcpy(dst + static_cast<ptrdiff_t>(y * pitch),
+                    frame_data + static_cast<ptrdiff_t>(y * width), row_bytes);
     }
     SDL_UnlockTexture(target_texture);
     SDL_RenderTexture(target_renderer, target_texture, nullptr, nullptr);
@@ -585,7 +583,7 @@ void PPU::fill_debug_background_surface() {
     debug_bg_surface_height = DEBUG_MAP_SIZE;
     debug_bg_surface.resize(static_cast<size_t>(DEBUG_MAP_SIZE) *
                             static_cast<size_t>(DEBUG_MAP_SIZE));
-    const uint32_t opaque = 0xFF000000u;
+    const uint32_t opaque = 0xFF000000U;
     const byte scx = cached_SCX;
     const byte scy = cached_SCY;
     for (int y = 0; y < DEBUG_MAP_SIZE; ++y) {
@@ -613,7 +611,7 @@ void PPU::fill_debug_window_surface() {
     debug_window_surface_height = DEBUG_MAP_SIZE;
     debug_window_surface.resize(static_cast<size_t>(DEBUG_MAP_SIZE) *
                                 static_cast<size_t>(DEBUG_MAP_SIZE));
-    const uint32_t opaque = 0xFF000000u;
+    const uint32_t opaque = 0xFF000000U;
     for (int y = 0; y < DEBUG_MAP_SIZE; ++y) {
         for (int x = 0; x < DEBUG_MAP_SIZE; ++x) {
             const BgPixel pixel =
@@ -635,8 +633,8 @@ void PPU::render_debug_tiles() {
     const int tile_size = 8;
     const int bank_width = tiles_per_row * tile_size;
     static constexpr std::array<uint32_t, 4> tile_palette{
-        0xFFFFFFFFu, 0xFFC0C0C0u, 0xFF808080u, 0xFF202020u};
-    std::fill(debug_tile_surface.begin(), debug_tile_surface.end(), 0u);
+        0xFFFFFFFFu, 0xFFC0C0C0U, 0xFF808080U, 0xFF202020U};
+    std::fill(debug_tile_surface.begin(), debug_tile_surface.end(), 0U);
     for (int bank = 0; bank < banks; ++bank) {
         for (int tile = 0; tile < 384; ++tile) {
             const int tile_x = tile % tiles_per_row;
@@ -656,7 +654,7 @@ void PPU::render_debug_tiles() {
                                    static_cast<half>((offset + 1) & 0x1FFF),
                                    true);
                 for (int col = 0; col < 8; ++col) {
-                    const byte mask = static_cast<byte>(1u << (7 - col));
+                    const byte mask = static_cast<byte>(1U << (7 - col));
                     const byte color =
                         static_cast<byte>(((tilelow & mask) ? 1 : 0) |
                                           ((tilehigh & mask) ? 2 : 0));
@@ -684,7 +682,9 @@ void PPU::render_debug_tiles() {
     const int row_bytes =
         debug_tile_surface_width * static_cast<int>(sizeof(uint32_t));
     for (int y = 0; y < debug_tile_surface_height; ++y) {
-        std::memcpy(dst + y * pitch, src32 + y * debug_tile_surface_width,
+        std::memcpy(dst + static_cast<ptrdiff_t>(y * pitch),
+                    src32 +
+                        static_cast<ptrdiff_t>(y * debug_tile_surface_width),
                     row_bytes);
     }
     SDL_UnlockTexture(debug_tile_texture);
@@ -711,12 +711,12 @@ void PPU::dump_info() {
             std::cerr << "state: draw\n";
             break;
     }
-    std::cerr << std::endl;
+    std::cerr << '\n';
 }
 
 void PPU::dump_vram() {
     for (int i = 0; i < 0x3FF; ++i) {
-        if (i % 16 == 0) std::cout << std::endl;
+        if (i % 16 == 0) std::cout << '\n';
         std::cout << std::hex << (i + 0x9900) << ": "
                   << std::bitset<8>(bus->read(i + 0x9900) & 0xFF) << " ";
     }

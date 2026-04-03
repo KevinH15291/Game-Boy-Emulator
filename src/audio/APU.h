@@ -119,6 +119,14 @@ class APU {
     void flush_audio();
     void trigger_channel(half address);
     void update_length_enable(half address);
+    byte read_register(half address) const;
+    void write_register(half address, byte value);
+    byte read_wave_byte(half address) const;
+    void write_wave_byte(half address, byte value);
+    bool is_wave_active() const;
+    byte get_nr52_status() const;
+
+   private:
     bool masterEnabled = false;
 
     address_bus &memory;
@@ -132,38 +140,24 @@ class APU {
     uint32_t frameSequencerCounter = 0;
     byte frameSequencerStep = 0;
 
-    // Square channel timing counter (1048576 Hz = every 4 CPU cycles)
-    byte squareClockCounter = 0;
-    // Wave channel timing counter (2097152 Hz = every 2 CPU cycles)
-    byte waveClockCounter = 0;
-
     uint64_t sampleAccumulator = 0;
     std::array<float, AUDIO_BUFFER_SAMPLES * 2> sampleBuffer{};
     size_t bufferedSamples = 0;
 
-    float leftCapacitor = 0.0f;
-    float rightCapacitor = 0.0f;
+    float leftCapacitor = 0.0F;
+    float rightCapacitor = 0.0F;
 
     std::array<bool, 4> channelMuted{};
 
-    float masterVolume = 1.0f;
-    float fadeLevel = 1.0f;
+    float masterVolume = 1.0F;
+    float fadeLevel = 1.0F;
 
     bool audioExportEnabled = false;
 #ifndef __EMSCRIPTEN__
-    std::ofstream channelFiles[4];
+    std::array<std::ofstream, 4> channelFiles{};
 #endif
     uint32_t exportedSampleCount = 0;
 
-   public:
-    byte read_register(half address) const;
-    void write_register(half address, byte value);
-    byte read_wave_byte(half address) const;
-    void write_wave_byte(half address, byte value);
-    bool is_wave_active() const;
-    byte get_nr52_status() const;
-
-   private:
     byte read_reg(AudioRegister reg) const;
     void write_reg(AudioRegister reg, byte value);
     std::array<byte, 16> waveRAM{};

@@ -2,8 +2,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bitset>
-#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -55,11 +53,6 @@ void cpu_mark_tima_written(SM83* cpu) {
 }
 address_bus::address_bus(CgbConfig& config)
     : config(config), cartROM(MAX_CART_ROM_SIZE, 0) {
-    memset(cartRAM.data(), 0, sizeof(cartRAM));
-    memset(workRAM.data(), 0, sizeof(workRAM));
-    memset(videoRAM.data(), 0, sizeof(videoRAM));
-    memset(OAM.data(), 0, sizeof(OAM));
-    memset(IOrange.data(), 0, sizeof(IOrange));
     IOrange[addr(IORegister::JOYP) - addr(MemoryRegion::IO_REGISTERS)] = 0xCF;
     sync_key_registers();
 }
@@ -96,7 +89,7 @@ void address_bus::load_boot_ROM(const char* fname, uint32_t size) {
     const auto path = std::filesystem::path(fname);
     auto data = read_file_bytes(path, size);
     if (!data) {
-        std::cerr << data.error() << std::endl;
+        std::cerr << data.error() << '\n';
         return;
     }
     const auto& bytes = data.value();
@@ -108,7 +101,7 @@ void address_bus::load_ROM(const char* fname) {
     const auto path = std::filesystem::path(fname);
     auto data = read_file_bytes(path, cartROM.size());
     if (!data) {
-        std::cerr << data.error() << std::endl;
+        std::cerr << data.error() << '\n';
         return;
     }
     const auto bytes_read = data->size();
@@ -224,7 +217,7 @@ void address_bus::mark_palette_dirty() const {
 
 void address_bus::writeMBC1(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
-        RAMenable = (value & 0x0F) == 0x0A;
+        RAMenable = static_cast<byte>((value & 0x0F) == 0x0A);
         return;
     }
 
@@ -260,7 +253,7 @@ void address_bus::writeMBC1(half address, byte value) {
 
 void address_bus::writeMBC3(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
-        RAMenable = (value & 0x0F) == 0x0A;
+        RAMenable = static_cast<byte>((value & 0x0F) == 0x0A);
         return;
     }
 
@@ -294,7 +287,7 @@ void address_bus::writeMBC3(half address, byte value) {
 void address_bus::writeMBC2(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
         if ((address & 0x0100) == 0) {
-            RAMenable = (value & 0x0F) == 0x0A;
+            RAMenable = static_cast<byte>((value & 0x0F) == 0x0A);
         }
         return;
     }
@@ -311,7 +304,7 @@ void address_bus::writeMBC2(half address, byte value) {
 
 void address_bus::writeMBC5(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
-        RAMenable = (value & 0x0F) == 0x0A;
+        RAMenable = static_cast<byte>((value & 0x0F) == 0x0A);
         return;
     }
 
@@ -341,7 +334,7 @@ void address_bus::writeMBC5(half address, byte value) {
 // Current implementation is a placeholder for basic compatibility
 void address_bus::writeMBC6(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
-        RAMenable = (value & 0x0F) == 0x0A;
+        RAMenable = static_cast<byte>((value & 0x0F) == 0x0A);
         return;
     }
 
@@ -364,7 +357,7 @@ void address_bus::writeMBC6(half address, byte value) {
 void address_bus::writeMBC7(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
         // MBC7 first RAM enable: write $0A to enable
-        RAMenable = (value & 0x0F) == 0x0A;
+        RAMenable = static_cast<byte>((value & 0x0F) == 0x0A);
         return;
     }
 
@@ -377,7 +370,7 @@ void address_bus::writeMBC7(half address, byte value) {
 
     if (address >= 0x4000 && address <= 0x5FFF) {
         // MBC7 second RAM enable: write $40 to enable (both must be enabled)
-        mbc7_ram_enable_secondary = (value == 0x40);
+        mbc7_ram_enable_secondary = static_cast<byte>(value == 0x40);
         return;
     }
 }
@@ -386,7 +379,7 @@ void address_bus::writeHuC1(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
         // HuC1 IR/RAM mode selection: write $0E for IR mode, else RAM mode
         // Some games use $0A/$00, so we approximate with RAM enable behavior
-        RAMenable = (value & 0x0F) == 0x0A;
+        RAMenable = static_cast<byte>((value & 0x0F) == 0x0A);
         return;
     }
 
@@ -407,7 +400,7 @@ void address_bus::writeHuC1(half address, byte value) {
 
 void address_bus::writeHuC3(half address, byte value) {
     if (address >= addr(MemoryRegion::ROM_BANK_00) && address <= 0x1FFF) {
-        RAMenable = (value & 0x0F) == 0x0A;
+        RAMenable = static_cast<byte>((value & 0x0F) == 0x0A);
         return;
     }
 

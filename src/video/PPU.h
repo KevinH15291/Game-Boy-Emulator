@@ -5,7 +5,6 @@
 #include <SDL3/SDL_video.h>
 
 #include <array>
-#include <bitset>
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -59,7 +58,7 @@ class PPU {
     SDL_Texture *texture = nullptr;
 
     std::array<uint32_t, WINDOW_WIDTH * WINDOW_HEIGHT> frame_rgb{};
-    std::array<obj, 10> objbuffer;
+    std::array<obj, 10> objbuffer{};
     byte objnum = 0;
     byte cached_LCDC = 0;
     byte cached_BGP = 0;
@@ -173,8 +172,8 @@ inline void PPU::io_write(half address, byte value) {
     if (bus == nullptr) {
         return;
     }
-    auto &io = bus->IOrange;
-    byte &cell = io[address - addr(MemoryRegion::IO_REGISTERS)];
+
+    byte &cell = bus->IOrange[address - addr(MemoryRegion::IO_REGISTERS)];
     switch (address) {
         case addr(VideoRegister::LCDC): {
             const byte old = reg_LCDC;

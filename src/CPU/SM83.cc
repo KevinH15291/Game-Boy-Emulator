@@ -61,7 +61,8 @@ void SM83::execute() {
         --pc;
     }
 
-    if (opcode <= 0x3F) switch (opcode) {
+    if (opcode <= 0x3F) {
+        switch (opcode) {
             case 0x00:
                 return;
             case 0x01:  // LD BC, d16
@@ -256,7 +257,7 @@ void SM83::execute() {
             default:
                 break;
         }
-    else if (opcode >= 0x40 && opcode <= 0x7F) {
+    } else if (opcode >= 0x40 && opcode <= 0x7F) {
         byte dest = getBitRange(opcode, 3, 3);
         byte src = getBitRange(opcode, 0, 3);
 
@@ -555,6 +556,69 @@ inline void SM83::executeCB() {
     }
 }
 
+[[gnu::always_inline]] bool SM83::getZeroFlag() const {
+    return isBitSet(r8[6], 7);
+}
+[[gnu::always_inline]] bool SM83::getNFlag() const {
+    return isBitSet(r8[6], 6);
+}
+[[gnu::always_inline]] bool SM83::getHalfCarryFlag() const {
+    return isBitSet(r8[6], 5);
+}
+[[gnu::always_inline]] bool SM83::getCarryFlag() const {
+    return isBitSet(r8[6], 4);
+}
+[[gnu::always_inline]] void SM83::setZeroFlag(bool val) {
+    r8[6] = val ? setBit(r8[6], 7) : clearBit(r8[6], 7);
+}
+[[gnu::always_inline]] void SM83::setNFlag(bool val) {
+    r8[6] = val ? setBit(r8[6], 6) : clearBit(r8[6], 6);
+}
+[[gnu::always_inline]] void SM83::setHalfCarryFlag(bool val) {
+    r8[6] = val ? setBit(r8[6], 5) : clearBit(r8[6], 5);
+}
+[[gnu::always_inline]] void SM83::setCarryFlag(bool val) {
+    r8[6] = val ? setBit(r8[6], 4) : clearBit(r8[6], 4);
+}
+[[gnu::always_inline]] half SM83::getAF() const { return (r8[7] << 8) | r8[6]; }
+[[gnu::always_inline]] half SM83::getBC() const { return (r8[0] << 8) | r8[1]; }
+[[gnu::always_inline]] half SM83::getDE() const { return (r8[2] << 8) | r8[3]; }
+[[gnu::always_inline]] half SM83::getHL() const { return (r8[4] << 8) | r8[5]; }
+[[gnu::always_inline]] void SM83::setAF(half val) {
+    r8[7] = val >> 8;
+    r8[6] = val & 0xF0;
+}
+[[gnu::always_inline]] void SM83::setBC(half val) {
+    r8[0] = val >> 8;
+    r8[1] = val & 0xFF;
+}
+[[gnu::always_inline]] void SM83::setDE(half val) {
+    r8[2] = val >> 8;
+    r8[3] = val & 0xFF;
+}
+[[gnu::always_inline]] void SM83::setHL(half val) {
+    r8[4] = val >> 8;
+    r8[5] = val & 0xFF;
+}
+[[gnu::always_inline]] byte SM83::fetch8() { return memory->read(pc++); }
+[[gnu::always_inline]] half SM83::fetch16() {
+    byte low = fetch8();
+    byte high = fetch8();
+    return low | (static_cast<half>(high) << 8);
+}
+[[gnu::always_inline]] bool SM83::halfCarryAdd(byte a, byte b) {
+    return ((a & 0xF) + (b & 0xF)) > 0xF;
+}
+[[gnu::always_inline]] bool SM83::halfCarryAdd_WithCarry(byte a, byte b) const {
+    return ((a & 0xF) + (b & 0xF) + static_cast<int>(getCarryFlag())) > 0xF;
+}
+[[gnu::always_inline]] bool SM83::halfCarrySub(byte a, byte b) {
+    return (a & 0xF) < (b & 0xF);
+}
+[[gnu::always_inline]] bool SM83::halfCarrySub_WithCarry(byte a, byte b) const {
+    return (a & 0xF) < ((b & 0xF) + static_cast<int>(getCarryFlag()));
+}
+
 inline void SM83::instrNOP() {}
 
 inline void SM83::instrLdImm16SP() {
@@ -565,7 +629,7 @@ inline void SM83::instrLdImm16SP() {
 
 inline void SM83::instrRLCA() {
     byte original = RA;
-    setCarryFlag(original & 0x80);
+    setCarryFlag((original & 0x80) != 0);
     RA = (original << 1) | (original >> 7);
     setHalfCarryFlag(false);
     setNFlag(false);
@@ -574,7 +638,7 @@ inline void SM83::instrRLCA() {
 
 inline void SM83::instrRRCA() {
     byte original = RA;
-    setCarryFlag(original & 1);
+    setCarryFlag((original & 1) != 0);
     RA = ((original & 1) << 7) | (original >> 1);
     setHalfCarryFlag(false);
     setNFlag(false);
@@ -594,10 +658,10 @@ inline void SM83::instrRRA() {
     half temp = (RA & 1);
     temp |= (RA << 8);
     RA >>= 1;
-    RA |= ((getCarryFlag() & 1) << 7);
+    RA |= ((static_cast<int>(getCarryFlag()) & 1) << 7);
     setHalfCarryFlag(false);
     setNFlag(false);
-    setCarryFlag(temp & 1);
+    setCarryFlag((temp & 1) != 0);
     setZeroFlag(false);
 }
 
@@ -802,7 +866,7 @@ inline void SM83::instrAddA_R8(byte reg) {
 }
 
 inline void SM83::instrAdcA_R8(byte reg) {
-    byte carry = getCarryFlag();
+    byte carry = static_cast<byte>(getCarryFlag());
     if (reg == 6) {
         byte value = memory->read(getHL());
         setHalfCarryFlag(halfCarryAdd_WithCarry(RA, value));
@@ -839,7 +903,7 @@ inline void SM83::instrSubA_R8(byte reg) {
 
 inline void SM83::instrSbcA_R8(byte reg) {
     setNFlag(true);
-    byte carry = getCarryFlag();
+    byte carry = static_cast<byte>(getCarryFlag());
     if (reg == 6) {
         byte value = memory->read(getHL());
         setHalfCarryFlag(halfCarrySub_WithCarry(RA, value));
@@ -857,9 +921,9 @@ inline void SM83::instrSbcA_R8(byte reg) {
 }
 
 inline void SM83::instrAndA_R8(byte reg) {
-    setHalfCarryFlag(1);
-    setNFlag(0);
-    setCarryFlag(0);
+    setHalfCarryFlag(true);
+    setNFlag(false);
+    setCarryFlag(false);
     if (reg == 6) {
         RA &= memory->read(getHL());
         setZeroFlag(RA == 0);
@@ -870,9 +934,9 @@ inline void SM83::instrAndA_R8(byte reg) {
 }
 
 inline void SM83::instrXorA_R8(byte reg) {
-    setHalfCarryFlag(0);
-    setNFlag(0);
-    setCarryFlag(0);
+    setHalfCarryFlag(false);
+    setNFlag(false);
+    setCarryFlag(false);
     if (reg == 6) {
         RA ^= memory->read(getHL());
         setZeroFlag(RA == 0);
@@ -883,9 +947,9 @@ inline void SM83::instrXorA_R8(byte reg) {
 }
 
 inline void SM83::instrOrA_R8(byte reg) {
-    setHalfCarryFlag(0);
-    setNFlag(0);
-    setCarryFlag(0);
+    setHalfCarryFlag(false);
+    setNFlag(false);
+    setCarryFlag(false);
     if (reg == 6) {
         RA |= memory->read(getHL());
         setZeroFlag(RA == 0);
@@ -922,9 +986,9 @@ inline void SM83::instrAddA_Imm8() {
 
 inline void SM83::instrAdcA_Imm8() {
     half temp = fetch8();
-    byte carry = getCarryFlag();
+    byte carry = static_cast<byte>(getCarryFlag());
     setHalfCarryFlag(halfCarryAdd_WithCarry(RA, temp));
-    half result = static_cast<half>(RA) + static_cast<half>(temp) + carry;
+    half result = static_cast<half>(RA) + temp + carry;
     RA = static_cast<byte>(result);
     setCarryFlag(result > 0xFF);
     setZeroFlag(RA == 0);
@@ -943,35 +1007,35 @@ inline void SM83::instrSubA_Imm8() {
 
 inline void SM83::instrSbcA_Imm8() {
     half temp = fetch8();
-    byte carry = getCarryFlag();
+    byte carry = static_cast<byte>(getCarryFlag());
     setNFlag(true);
     setHalfCarryFlag(halfCarrySub_WithCarry(RA, temp));
-    half subtrahend = static_cast<half>(temp) + carry;
+    half subtrahend = temp + carry;
     setCarryFlag(static_cast<half>(RA) < subtrahend);
     RA -= static_cast<byte>(subtrahend);
     setZeroFlag(RA == 0);
 }
 
 inline void SM83::instrAndA_Imm8() {
-    setHalfCarryFlag(1);
-    setNFlag(0);
-    setCarryFlag(0);
+    setHalfCarryFlag(true);
+    setNFlag(false);
+    setCarryFlag(false);
     RA &= fetch8();
     setZeroFlag(RA == 0);
 }
 
 inline void SM83::instrXorA_Imm8() {
-    setHalfCarryFlag(0);
-    setNFlag(0);
-    setCarryFlag(0);
+    setHalfCarryFlag(false);
+    setNFlag(false);
+    setCarryFlag(false);
     RA ^= fetch8();
     setZeroFlag(RA == 0);
 }
 
 inline void SM83::instrOrA_Imm8() {
-    setHalfCarryFlag(0);
-    setNFlag(0);
-    setCarryFlag(0);
+    setHalfCarryFlag(false);
+    setNFlag(false);
+    setCarryFlag(false);
 
     RA |= fetch8();
     setZeroFlag(RA == 0);
@@ -979,7 +1043,7 @@ inline void SM83::instrOrA_Imm8() {
 
 inline void SM83::instrCpA_Imm8() {
     half imm8 = fetch8();
-    setNFlag(1);
+    setNFlag(true);
     setCarryFlag(RA < imm8);
     setHalfCarryFlag(halfCarrySub(RA, imm8));
     setZeroFlag(RA == imm8);
@@ -1028,8 +1092,8 @@ inline void SM83::instrLDH_A_Imm8() {
 inline void SM83::instrLD_A_Imm16() { RA = memory->read(fetch16()); }
 
 inline void SM83::instrAddSP_Imm8() {
-    setZeroFlag(0);
-    setNFlag(0);
+    setZeroFlag(false);
+    setNFlag(false);
     int8_t temp = static_cast<int8_t>(fetch8());
     byte sp_low = static_cast<byte>(sp & 0xFF);
     byte temp_unsigned = static_cast<byte>(temp);
@@ -1041,8 +1105,8 @@ inline void SM83::instrAddSP_Imm8() {
 
 inline void SM83::instrLD_HL_SP_Imm8() {
     int8_t temp = static_cast<int8_t>(fetch8());
-    setZeroFlag(0);
-    setNFlag(0);
+    setZeroFlag(false);
+    setNFlag(false);
     byte sp_low = static_cast<byte>(sp & 0xFF);
     byte temp_unsigned = static_cast<byte>(temp);
     setHalfCarryFlag(((sp_low & 0xF) + (temp_unsigned & 0xF)) > 0xF);
@@ -1102,113 +1166,113 @@ inline void SM83::instrPUSH_R16(byte regIndex) {
 }
 
 inline void SM83::instrRLC_R8(byte reg) {
-    setNFlag(0);
-    setHalfCarryFlag(0);
+    setNFlag(false);
+    setHalfCarryFlag(false);
     if (reg == 6) {
         byte value = memory->read(getHL());
-        setCarryFlag(value & 0x80);
+        setCarryFlag((value & 0x80) != 0);
         value = (value << 1) | (value >> 7);
         memory->write(getHL(), value);
         setZeroFlag(value == 0);
         return;
     }
     byte original = r8[reg];
-    setCarryFlag(original & 0x80);
+    setCarryFlag((original & 0x80) != 0);
     r8[reg] = (original << 1) | (original >> 7);
     setZeroFlag(r8[reg] == 0);
 }
 
 inline void SM83::instrRRC_R8(byte reg) {
-    setNFlag(0);
-    setHalfCarryFlag(0);
+    setNFlag(false);
+    setHalfCarryFlag(false);
     if (reg == 6) {
         byte value = memory->read(getHL());
-        setCarryFlag(value & 1);
+        setCarryFlag((value & 1) != 0);
         value = ((value & 1) << 7) | (value >> 1);
         memory->write(getHL(), value);
         setZeroFlag(value == 0);
         return;
     }
     byte original = r8[reg];
-    setCarryFlag(original & 1);
+    setCarryFlag((original & 1) != 0);
     r8[reg] = ((original & 1) << 7) | (original >> 1);
     setZeroFlag(r8[reg] == 0);
 }
 
 inline void SM83::instrRL_R8(byte reg) {
-    byte temp = getCarryFlag();
-    setNFlag(0);
-    setHalfCarryFlag(0);
+    byte temp = static_cast<byte>(getCarryFlag());
+    setNFlag(false);
+    setHalfCarryFlag(false);
     if (reg == 6) {
         byte value = memory->read(getHL());
-        setCarryFlag(value >> 7);
+        setCarryFlag((value >> 7) != 0);
         value = (temp & 1) | (value << 1);
         memory->write(getHL(), value);
         setZeroFlag(value == 0);
         return;
     }
     byte original = r8[reg];
-    setCarryFlag(original >> 7);
+    setCarryFlag((original >> 7) != 0);
     r8[reg] = (temp & 1) | (original << 1);
     setZeroFlag(r8[reg] == 0);
 }
 
 inline void SM83::instrRR_R8(byte reg) {
-    byte temp = getCarryFlag();
-    setNFlag(0);
-    setHalfCarryFlag(0);
+    byte temp = static_cast<byte>(getCarryFlag());
+    setNFlag(false);
+    setHalfCarryFlag(false);
     if (reg == 6) {
         byte value = memory->read(getHL());
-        setCarryFlag(value & 1);
+        setCarryFlag((value & 1) != 0);
         value = ((temp & 1) << 7) | (value >> 1);
         memory->write(getHL(), value);
         setZeroFlag(value == 0);
         return;
     }
     byte original = r8[reg];
-    setCarryFlag(original & 1);
+    setCarryFlag((original & 1) != 0);
     r8[reg] = ((temp & 1) << 7) | (original >> 1);
     setZeroFlag(r8[reg] == 0);
 }
 
 inline void SM83::instrSLA_R8(byte reg) {
-    setNFlag(0);
-    setHalfCarryFlag(0);
+    setNFlag(false);
+    setHalfCarryFlag(false);
     if (reg == 6) {
         byte value = memory->read(getHL());
-        setCarryFlag(value >> 7);
+        setCarryFlag((value >> 7) != 0);
         value = value << 1;
         memory->write(getHL(), value);
         setZeroFlag(value == 0);
         return;
     }
     byte original = r8[reg];
-    setCarryFlag(original >> 7);
+    setCarryFlag((original >> 7) != 0);
     r8[reg] = original << 1;
     setZeroFlag(r8[reg] == 0);
 }
 
 inline void SM83::instrSRA_R8(byte reg) {
-    setNFlag(0);
-    setHalfCarryFlag(0);
+    setNFlag(false);
+    setHalfCarryFlag(false);
     if (reg == 6) {
         byte value = memory->read(getHL());
-        setCarryFlag(value & 1);
+        setCarryFlag((value & 1) != 0);
         value = (value & 0x80) | (value >> 1);
         memory->write(getHL(), value);
         setZeroFlag(value == 0);
         return;
     }
     byte original = r8[reg];
-    setCarryFlag(original & 1);
+    setCarryFlag((original & 1) != 0);
     r8[reg] = (original & 0x80) | (original >> 1);
     setZeroFlag(r8[reg] == 0);
 }
 
 inline void SM83::instrSWAP_R8(byte reg) {
-    setNFlag(0);
-    setHalfCarryFlag(0);
-    setCarryFlag(0);
+    setNFlag(false);
+    setHalfCarryFlag(false);
+    setCarryFlag(false);
     if (reg == 6) {
         byte value = memory->read(getHL());
         value = (value >> 4) | (value << 4);
@@ -1221,25 +1285,25 @@ inline void SM83::instrSWAP_R8(byte reg) {
 }
 
 inline void SM83::instrSRL_R8(byte reg) {
-    setNFlag(0);
-    setHalfCarryFlag(0);
+    setNFlag(false);
+    setHalfCarryFlag(false);
     if (reg == 6) {
         byte value = memory->read(getHL());
-        setCarryFlag(value & 1);
+        setCarryFlag((value & 1) != 0);
         value = value >> 1;
         memory->write(getHL(), value);
         setZeroFlag(value == 0);
         return;
     }
     byte original = r8[reg];
-    setCarryFlag(original & 1);
+    setCarryFlag((original & 1) != 0);
     r8[reg] = original >> 1;
     setZeroFlag(r8[reg] == 0);
 }
 
 inline void SM83::instrBIT_R8(byte bit, byte reg) {
-    setNFlag(0);
-    setHalfCarryFlag(1);
+    setNFlag(false);
+    setHalfCarryFlag(true);
     if (reg == 6) {
         setZeroFlag(!isBitSet(memory->read(getHL()), bit));
         return;
@@ -1306,7 +1370,7 @@ inline void SM83::store16t2(byte reg16, half val) {
     }
 }
 
-inline half SM83::load16t1(byte reg16) {
+inline half SM83::load16t1(byte reg16) const {
     switch (reg16) {
         case 0:
             return getBC();
@@ -1321,7 +1385,7 @@ inline half SM83::load16t1(byte reg16) {
     }
 }
 
-inline half SM83::load16t2(byte reg16) {
+inline half SM83::load16t2(byte reg16) const {
     switch (reg16) {
         case 0:
             return getBC();
@@ -1386,16 +1450,18 @@ inline void SM83::increment_timer() {
     switch (tacreg & 0x3) {
         case 0:  // 4096 Hz - use divcounter bit 1 (every 512 cycles, falling
                  // edge = 1024)
-            timer_bit = (divcounter & (1u << 9)) ? 1 : 0;
+            timer_bit = (divcounter & (1U << 9)) ? 1 : 0;
             break;
         case 1:  // 262144 Hz - check every 16 cycles
-            timer_bit = (divcounter & (1u << 3)) ? 1 : 0;
+            timer_bit = (divcounter & (1U << 3)) ? 1 : 0;
             break;
         case 2:  // 65536 Hz - check every 64 cycles
-            timer_bit = (divcounter & (1u << 5)) ? 1 : 0;
+            timer_bit = (divcounter & (1U << 5)) ? 1 : 0;
             break;
         case 3:  // 16384 Hz - check every 256 cycles
-            timer_bit = (divcounter & (1u << 7)) ? 1 : 0;
+            timer_bit = (divcounter & (1U << 7)) ? 1 : 0;
+            break;
+        default:
             break;
     }
 
